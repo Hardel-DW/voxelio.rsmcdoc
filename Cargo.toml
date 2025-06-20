@@ -1,0 +1,49 @@
+[package]
+name = "voxel-rsmcdoc"
+version = "0.1.0"
+edition = "2021"
+description = "MCDOC parser for Minecraft datapack validation"
+license = "MIT"
+repository = "https://github.com/voxel-community/voxel-rsmcdoc"
+exclude = ["examples/", "tests/", "docs/", "*.ps1", "wasm_demo.ts"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core parsing
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Performance optimizations
+rustc-hash = "2.0"  # FxHashMap
+memchr = "2.6"      # SIMD string scanning
+rayon = { version = "1.8", optional = true }  # Parallel processing (not needed in WASM)
+
+# WASM bindings (conditional)
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = ["console"], optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+
+# CLI dependencies (conditional) 
+clap = { version = "4.4", optional = true, features = ["derive"] }
+walkdir = { version = "2.4", optional = true }
+tokio = { version = "1.0", optional = true, features = ["full"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = "s"        # Optimize for size
+lto = true             # Link time optimization
+codegen-units = 1      # Better optimization
+panic = "abort"        # Remove panic unwinding
+strip = "symbols"      # Strip debug symbols
+
+[features]
+default = ["rayon"]
+wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys", "console_error_panic_hook", "serde-wasm-bindgen"]
+cli = ["clap", "walkdir", "tokio", "rayon"] 
