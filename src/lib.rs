@@ -28,8 +28,14 @@ pub mod wasm;
 
 // Re-exports for public API
 pub use validator::McDocValidator;
-pub use types::{McDocError, McDocDependency, ValidationResult, DatapackResult};
+pub use types::{ValidationResult, DatapackResult, McDocError, McDocDependency, MinecraftVersion};
 pub use error::{McDocParserError, ErrorType};
+pub use lexer::{Token, TokenWithPos, Position};
+pub use parser::{McDocFile, TypeExpression, FieldDeclaration, ImportStatement};
+pub use registry::{Registry, RegistryManager};
+pub use resolver::ImportResolver;
+
+
 
 /// Resource identifier for Minecraft resources (e.g., "minecraft:diamond_sword")
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

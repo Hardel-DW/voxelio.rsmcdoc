@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use rustc_hash::FxHashMap;
 
+// Use the smaller allocator for WASM
+#[cfg(feature = "wee_alloc")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
 // When the `console_error_panic_hook` feature is enabled, we can call the
 // `set_panic_hook` function at least once during initialization, and then
 // we will get better error messages if our code ever panics.
@@ -77,8 +82,12 @@ impl WasmMcDocValidator {
     /// Expected format: { "path/to/file.mcdoc": "file content", ... }
     #[wasm_bindgen]
     pub fn load_mcdoc_files(&mut self, files_obj: &JsValue) -> Result<(), JsValue> {
+        #[cfg(feature = "serde-wasm-bindgen")]
         let files: HashMap<String, String> = serde_wasm_bindgen::from_value(files_obj.clone())
             .map_err(|e| JsValue::from_str(&format!("Failed to parse MCDOC files: {}", e)))?;
+        
+        #[cfg(not(feature = "serde-wasm-bindgen"))]
+        let files: HashMap<String, String> = HashMap::new(); // Fallback for minimal WASM
 
         console_log!("📦 Loading {} MCDOC files", files.len());
 
@@ -106,8 +115,12 @@ impl WasmMcDocValidator {
             return Err(JsValue::from_str("MCDOC files not loaded. Call load_mcdoc_files() first."));
         }
 
+        #[cfg(feature = "serde-wasm-bindgen")]
         let json: serde_json::Value = serde_wasm_bindgen::from_value(json_data.clone())
             .map_err(|e| JsValue::from_str(&format!("Failed to parse JSON: {}", e)))?;
+        
+        #[cfg(not(feature = "serde-wasm-bindgen"))]
+        let json: serde_json::Value = serde_json::Value::Null; // Fallback pour WASM minimal
 
         console_log!("🔍 Validating {} JSON", resource_type);
 
@@ -143,8 +156,15 @@ impl WasmMcDocValidator {
                     wasm_result.dependencies.len()
                 );
 
-                serde_wasm_bindgen::to_value(&wasm_result)
-                    .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+                #[cfg(feature = "serde-wasm-bindgen")]
+                {
+                    serde_wasm_bindgen::to_value(&wasm_result)
+                        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+                }
+                #[cfg(not(feature = "serde-wasm-bindgen"))]
+                {
+                    Ok(JsValue::NULL) // Fallback pour WASM minimal
+                }
             },
             Err(errors) => {
                 let error_msg = format!("Validator initialization failed: {} errors", errors.len());
@@ -158,8 +178,15 @@ impl WasmMcDocValidator {
     pub fn get_registry_stats(&self) -> Result<JsValue, JsValue> {
         // For now, return empty stats since registry loading is not implemented in WASM yet
         let empty_stats: HashMap<String, serde_json::Value> = HashMap::new();
-        serde_wasm_bindgen::to_value(&empty_stats)
-            .map_err(|e| JsValue::from_str(&format!("Failed to serialize stats: {}", e)))
+        #[cfg(feature = "serde-wasm-bindgen")]
+        {
+            serde_wasm_bindgen::to_value(&empty_stats)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize stats: {}", e)))
+        }
+        #[cfg(not(feature = "serde-wasm-bindgen"))]
+        {
+            Ok(JsValue::NULL) // Fallback pour WASM minimal
+        }
     }
 
     /// Get available MCDOC file paths

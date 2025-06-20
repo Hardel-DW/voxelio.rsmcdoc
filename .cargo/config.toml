@@ -1,0 +1,18 @@
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "opt-level=s",           # Optimize for size
+  "-C", "codegen-units=1",       # Single codegen unit for better optimization
+  "-C", "panic=abort",           # Remove panic unwinding
+  "-C", "embed-bitcode=yes",     # Embed bitcode for LTO
+  # "-Z", "merge-functions=aggressive", # Merge similar functions (nightly only)
+]
+
+[build]
+target = "wasm32-unknown-unknown"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols" 

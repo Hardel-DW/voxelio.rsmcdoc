@@ -12,8 +12,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Core parsing
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"], default-features = false }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 # Performance optimizations
 rustc-hash = "2.0"  # FxHashMap
@@ -24,9 +24,10 @@ rayon = { version = "1.8", optional = true }  # Parallel processing (not needed 
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 js-sys = { version = "0.3", optional = true }
-web-sys = { version = "0.3", features = ["console"], optional = true }
+web-sys = { version = "0.3", features = ["console"], optional = true, default-features = false }
 console_error_panic_hook = { version = "0.1", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
+wee_alloc = { version = "0.4", optional = true }
 
 # CLI dependencies (conditional) 
 clap = { version = "4.4", optional = true, features = ["derive"] }
@@ -38,12 +39,28 @@ criterion = { version = "0.5", features = ["html_reports"] }
 
 [profile.release]
 opt-level = "s"        # Optimize for size
-lto = true             # Link time optimization
+lto = "fat"            # Maximum link time optimization
 codegen-units = 1      # Better optimization
 panic = "abort"        # Remove panic unwinding
 strip = "symbols"      # Strip debug symbols
+overflow-checks = false # Remove overflow checks
+debug-assertions = false # Remove debug assertions
+
+[profile.release.package."*"]
+opt-level = "s"        # Force size optimization for all deps
+
+# Target WASM specific optimizations
+[profile.release.package.wasm-bindgen]
+opt-level = "s"
+
+[profile.release.package.js-sys]  
+opt-level = "s"
+
+[profile.release.package.web-sys]
+opt-level = "s"
 
 [features]
 default = ["rayon"]
-wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys", "console_error_panic_hook", "serde-wasm-bindgen"]
+wasm = ["wasm-bindgen", "js-sys", "wee_alloc"]
+wasm-full = ["wasm", "wasm-bindgen-futures", "web-sys", "console_error_panic_hook", "serde-wasm-bindgen"]
 cli = ["clap", "walkdir", "tokio", "rayon"] 
