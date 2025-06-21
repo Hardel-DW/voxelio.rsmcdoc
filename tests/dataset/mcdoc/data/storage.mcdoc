@@ -1,0 +1,4 @@
+// No one should inject this struct, its only named for linting purposes.
+dispatch minecraft:storage[%unknown] to struct UnknownStorage {
+	[string]: any,
+}

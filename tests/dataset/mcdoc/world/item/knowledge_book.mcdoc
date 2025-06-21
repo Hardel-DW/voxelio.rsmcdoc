@@ -1,0 +1,4 @@
+dispatch minecraft:item[knowledge_book] to struct KnowledgeBook {
+	...super::ItemBase,
+	Recipes?: [#[id="recipe"] string],
+}

@@ -1,0 +1,8 @@
+struct BlockState {
+	Name: #[id="block"] string,
+	Properties?: mcdoc:block_states[[Name]],
+}
+
+dispatch mcdoc:block_states[%unknown,%none] to struct {
+	[string]: string,
+}

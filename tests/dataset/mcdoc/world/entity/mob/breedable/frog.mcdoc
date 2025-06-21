@@ -1,0 +1,5 @@
+#[since="1.19"]
+dispatch minecraft:entity[frog] to struct Frog {
+	...super::Breedable,
+	variant?: #[id="frog_variant"] string,
+}

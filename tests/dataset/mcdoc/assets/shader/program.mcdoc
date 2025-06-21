@@ -1,0 +1,86 @@
+dispatch minecraft:resource["shader"] to struct ShaderProgram {
+	// The vertex shader, referencing a file ending with `.vsh`.
+	vertex: (
+		#[until="1.21.2"] string |
+		#[since="1.21.2"] #[id="shader/vertex"] string |
+	),
+	// The fragment shader, referencing a file ending with `.fsh`.
+	fragment: (
+		#[until="1.21.2"] string |
+		#[since="1.21.2"] #[id="shader/fragment"] string |
+	),
+	samplers?: [Sampler],
+	#[until="1.21.2"]
+	attributes?: [string],
+	uniforms: [Uniform],
+	/// Unused.
+	#[until="1.21.2"]
+	blend?: BlendMode,
+	#[until="1.21.2"]
+	cull?: boolean,
+	/// Defines GLSL directives to be injected into the shader source.
+	#[since="1.21.2"]
+	defines?: Defines,
+}
+
+struct Sampler {
+	name: string,
+	#[until="1.21.2"]
+	file?: string,
+}
+
+struct Uniform {
+	name: string,
+	type: UniformType,
+	count: int,
+	values: [float],
+}
+
+enum(string) UniformType {
+	Int = "int",
+	Float = "float",
+	Matrix2x2 = "matrix2x2",
+	Matrix3x3 = "matrix3x3",
+	Matrix4x4 = "matrix4x4",
+}
+
+struct BlendMode {
+	func?: BlendFunc,
+	srcrgb?: BlendFactor,
+	dstrgb?: BlendFactor,
+	srcalpha?: BlendFactor,
+	dstalpha?: BlendFactor,
+}
+
+enum(string) BlendFunc {
+	Add = "add",
+	Subtract = "subtract",
+	ReverseSubtract = "reversesubtract",
+	ReverseSubtract2 = "reverse_subtract",
+	Min = "min",
+	Max = "max",
+}
+
+enum(string) BlendFactor {
+	Zero = "0",
+	Zero2 = "zero",
+	One = "1",
+	One2 = "one",
+	SrcColor = "srccolor",
+	OneSrcColor = "1-srccolor",
+	DstColor = "dstcolor",
+	OneDstColor = "1-dstcolor",
+	SrcAlpha = "srcalpha",
+	OneSrcAlpha = "1-srcalpha",
+	DstAlpha = "dstalpha",
+	OneDstAlpha = "1-dstalpha",
+}
+
+struct Defines {
+	/// Values that will be injected as `#define <key> <value>` at the top of the file.
+	values?: struct DefinesValues {
+		[string]: string,
+	},
+	/// Flags that will be injected as `#define <key>` at the top of the file.
+	flags?: [string],
+}

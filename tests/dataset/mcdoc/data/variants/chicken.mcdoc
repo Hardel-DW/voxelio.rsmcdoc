@@ -1,0 +1,12 @@
+#[since="1.21.5"]
+dispatch minecraft:resource[chicken_variant] to struct ChickenVariant {
+	model?: ChickenModelType,
+	/// The chicken texture to use for this variant.
+	asset_id: #[id="texture"] string,
+	...super::SpawnPrioritySelectors,
+}
+
+enum(string) ChickenModelType {
+	Normal = "normal",
+	Cold = "cold",
+}

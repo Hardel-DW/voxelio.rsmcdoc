@@ -375,7 +375,7 @@ fn test_parse_with_registry_basic() {
 // Full loot table file parsing test
 #[test]
 fn test_large_loot_table_parsing() {
-    let mcdoc_content = fs::read_to_string("examples/mcdoc/data/loot/mod.mcdoc")
+    let mcdoc_content = fs::read_to_string("tests/dataset/mcdoc/data/loot/mod.mcdoc")
         .expect("Unable to load loot table MCDOC");
     
     let mut lexer = Lexer::new(&mcdoc_content);

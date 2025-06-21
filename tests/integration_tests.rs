@@ -11,7 +11,7 @@ use voxel_rsmcdoc::{
 #[test]
 fn test_full_integration_loot_table() {
     // Test with complex MCDOC that requires advanced parsing - expected to fail with current simplified parser
-    let complex_mcdoc = fs::read_to_string("examples/mcdoc/loot/mod.mcdoc")
+    let complex_mcdoc = fs::read_to_string("tests/dataset/mcdoc/loot/mod.mcdoc")
         .unwrap_or_else(|_| {
             // Fallback complex MCDOC content if file doesn't exist
             r#"use ::java::util::text::Text
@@ -69,7 +69,7 @@ enum LootEntry {
 #[test]
 fn test_complex_loot_table_alternatives() {
     // Test with complex MCDOC that requires advanced parsing - expected to fail with current simplified parser
-    let complex_mcdoc = fs::read_to_string("examples/mcdoc/loot/mod.mcdoc")
+    let complex_mcdoc = fs::read_to_string("tests/dataset/mcdoc/loot/mod.mcdoc")
         .unwrap_or_else(|_| {
             r#"use ::java::util::text::Text
 use super::util::MinMaxBounds
@@ -98,7 +98,7 @@ dispatch minecraft:resource[loot_table] to struct LootTable {
 #[test]
 fn test_validation_errors_detection() {
     // Test with complex MCDOC - expected to fail parsing
-    let complex_mcdoc = fs::read_to_string("examples/mcdoc/loot/mod.mcdoc")
+    let complex_mcdoc = fs::read_to_string("tests/dataset/mcdoc/loot/mod.mcdoc")
         .unwrap_or_else(|_| {
             r#"use ::java::util::text::Text
 dispatch minecraft:resource[loot_table] to struct LootTable {
@@ -225,7 +225,7 @@ dispatch minecraft:resource[loot_table] to struct LootTable {
 #[test]
 fn test_debug_actual_file() {
     // Test reading the actual file that's causing problems
-    let mcdoc_content = match fs::read_to_string("examples/mcdoc/loot/mod.mcdoc") {
+    let mcdoc_content = match fs::read_to_string("tests/dataset/mcdoc/loot/mod.mcdoc") {
         Ok(content) => content,
         Err(e) => {
             println!("❌ Failed to read file: {:?}", e);

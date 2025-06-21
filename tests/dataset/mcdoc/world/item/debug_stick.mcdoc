@@ -1,0 +1,7 @@
+use ::java::world::component::item::DebugStickState
+
+dispatch minecraft:item[debug_stick] to struct DebugStick {
+	...super::ItemBase,
+	#[since="1.19"]
+	DebugProperty?: DebugStickState,
+}

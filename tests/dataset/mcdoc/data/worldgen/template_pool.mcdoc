@@ -1,0 +1,63 @@
+use super::processor_list::ProcessorListRef
+use super::feature::ConfiguredFeatureRef
+use super::feature::placement::PlacedFeatureRef
+use super::structure::LiquidSettings
+
+dispatch minecraft:resource["worldgen/template_pool"] to struct TemplatePool {
+	#[until="1.19.3"]
+	...struct {
+		name: string,
+	},
+	#[since="1.19.3"]
+	...struct {
+		name?: string,
+	},
+	fallback: #[id="worldgen/template_pool"] string,
+	elements: [WeightedElement],
+}
+
+struct WeightedElement {
+	weight: (
+		#[until="1.17"] int @ 1.. |
+		#[since="1.17"] int @ 1..150 |
+	),
+	element: Element,
+}
+
+struct Element {
+	element_type: #[id="worldgen/structure_pool_element"] string,
+	...minecraft:template_pool_element[[element_type]],
+}
+
+struct ElementBase {
+	projection: Projection,
+}
+
+enum(string) Projection {
+	Rigid = "rigid",
+	TerrainMatching = "terrain_matching",
+}
+
+dispatch minecraft:template_pool_element[feature_pool_element] to struct FeatureElement {
+	...ElementBase,
+	feature: (
+		#[until="1.18"] ConfiguredFeatureRef |
+		#[since="1.18"] PlacedFeatureRef |
+	),
+}
+
+dispatch minecraft:template_pool_element[
+	legacy_single_pool_element,
+	single_pool_element,
+] to struct SingleElement {
+	...ElementBase,
+	location: #[id="structure"] string,
+	processors: ProcessorListRef,
+	#[since="1.21"]
+	override_liquid_settings?: LiquidSettings,
+}
+
+dispatch minecraft:template_pool_element[list_pool_element] to struct ListElement {
+	...ElementBase,
+	elements: [Element],
+}

@@ -1,0 +1,39 @@
+use ::java::world::item::ItemStack
+
+type SlottedItem<T> = struct {
+	...ItemStack,
+	/// Inventory slot the item is in
+	Slot?: T,
+}
+
+enum(string) EquipmentSlot {
+	Mainhand = "mainhand",
+	Offhand = "offhand",
+	Head = "head",
+	Chest = "chest",
+	Legs = "legs",
+	Feet = "feet",
+	#[since="1.20.5"]
+	Body = "body",
+	#[since="1.21.5"]
+	Saddle = "saddle",
+}
+
+enum(string) EquipmentSlotGroup {
+	Mainhand = "mainhand",
+	Offhand = "offhand",
+	Head = "head",
+	Chest = "chest",
+	Legs = "legs",
+	Feet = "feet",
+	#[since="1.20.5"]
+	Hand = "hand",
+	#[since="1.20.5"]
+	Armor = "armor",
+	#[since="1.20.5"]
+	Any = "any",
+	#[since="1.20.5"]
+	Body = "body",
+	#[since="1.21.5"]
+	Saddle = "saddle",
+}

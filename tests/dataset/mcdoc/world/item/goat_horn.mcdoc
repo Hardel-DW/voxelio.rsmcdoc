@@ -1,0 +1,5 @@
+#[since="1.19"]
+dispatch minecraft:item[goat_horn] to struct GoatHorn {
+	...super::ItemBase,
+	instrument?: #[id="instrument"] string,
+}

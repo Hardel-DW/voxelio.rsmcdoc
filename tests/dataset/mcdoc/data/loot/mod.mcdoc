@@ -1,0 +1,224 @@
+use ::java::util::text::Text
+use super::util::MinMaxBounds
+use super::util::NumberProvider
+use super::util::RandomIntGenerator
+
+dispatch minecraft:resource[loot_table] to struct LootTable {
+	type?: #[id] LootContextType,
+	pools?: [LootPool],
+	functions?: [LootFunction],
+	#[since="1.20"]
+	random_sequence?: #[id(registry="random_sequence",definition=true)] string,
+}
+
+enum(string) LootContextType {
+	Empty = "empty",
+	Chest = "chest",
+	Command = "command",
+	Selector = "selector",
+	Fishing = "fishing",
+	Entity = "entity",
+	Gift = "gift",
+	Barter = "barter",
+	AdvancementReward = "advancement_reward",
+	AdvancementEntity = "advancement_entity",
+	#[since="1.20"]
+	AdvancementLocation = "advancement_location",
+	Generic = "generic",
+	Block = "block",
+	#[since="1.20.5"]
+	BlockUse = "block_use",
+	#[since="1.20.5"]
+	Equipment = "equipment",
+	#[since="1.19.4"]
+	Archaeology = "archaeology",
+	#[since="1.20.5"]
+	Vault = "vault",
+	#[since="1.20.5"]
+	Shearing = "shearing",
+	#[since="1.21"]
+	EnchantedDamage = "enchanted_damage",
+	#[since="1.21"]
+	EnchantedItem = "enchanted_item",
+	#[since="1.21"]
+	EnchantedLocation = "enchanted_location",
+	#[since="1.21"]
+	EnchantedEntity = "enchanted_entity",
+	#[since="1.21"]
+	HitBlock = "hit_block",
+}
+
+enum(string) EntityTarget {
+	This = "this",
+	#[until="1.21"] Killer = "killer",
+	#[since="1.21"] Attacker = "attacker",
+	#[until="1.21"] DirectKiller = "direct_killer",
+	#[since="1.21"] DirectAttacker = "direct_attacker",
+	#[until="1.21"] KillerPlayer = "killer_player",
+	#[since="1.21"] AttackingPlayer = "attacking_player",
+}
+
+struct LootPool {
+	rolls: (
+		#[until="1.17"] RandomIntGenerator |
+		#[since="1.17"] NumberProvider |
+	),
+	bonus_rolls?: (
+		#[until="1.17"] MinMaxBounds<float> |
+		#[since="1.17"] NumberProvider |
+	),
+	entries: [LootPoolEntry],
+	functions?: [LootFunction],
+	conditions?: [LootCondition],
+}
+
+struct LootPoolEntry {
+	type: (
+		#[until="1.16"] #[id] LootEntryType |
+		#[since="1.16"] #[id="loot_pool_entry_type"] string |
+	),
+	...minecraft:loot_pool_entry[[type]],
+}
+
+struct LootPoolEntryBase {
+	functions?: [LootFunction],
+	conditions?: [LootCondition],
+}
+
+struct SingletonPoolEntry {
+	weight?: int @ 1..,
+	quality?: int,
+	...LootPoolEntryBase,
+}
+
+dispatch minecraft:loot_pool_entry[empty] to SingletonPoolEntry
+
+/// Gets block specific drops.
+dispatch minecraft:loot_pool_entry[dynamic] to struct DynamicPoolEntry {
+	name: #[id] DynamicDrops,
+	...SingletonPoolEntry,
+}
+
+enum(string) DynamicDrops {
+	/// Drops the items in a shulker box.
+	Contents = "contents",
+	/// Drops the sherds of a decorated pot.
+	#[since="1.20"]
+	Sherds = "sherds",
+}
+
+/// Adds a single item.
+dispatch minecraft:loot_pool_entry[item] to struct ItemPoolEntry {
+	name: (
+		#[until="1.21.2"] #[id="item"] string |
+		#[since="1.21.2"] #[id(registry="item", exclude=["air"])] string |	
+	),
+	...SingletonPoolEntry,
+}
+
+/// Adds the contents of another loot table.
+dispatch minecraft:loot_pool_entry[loot_table] to struct LootTablePoolEntry {
+	#[until="1.20.5"]
+	name: #[id="loot_table"] string,
+	#[since="1.20.5"]
+	value: (
+		#[id="loot_table"] string |
+		LootTable |
+	),
+	...SingletonPoolEntry,
+}
+
+/// Adds the contents of an item tag.
+dispatch minecraft:loot_pool_entry[tag] to struct TagPoolEntry {
+	name: #[id(registry="item",tags="implicit")] string,
+	/// If `true`, drops a random item from the tag. If `false`, drops all items in the tag.
+	expand: boolean,
+	...SingletonPoolEntry,
+}
+
+struct CompositePoolEntry {
+	children: [LootPoolEntry],
+	...LootPoolEntryBase,
+}
+
+/// Tests conditions of the child entries and executes the first that can run.
+dispatch minecraft:loot_pool_entry[alternatives] to CompositePoolEntry
+
+/// Executes all child entries when own conditions pass.
+dispatch minecraft:loot_pool_entry[group] to CompositePoolEntry
+
+/// Executes child entries until the first one that can't run due to conditions.
+dispatch minecraft:loot_pool_entry[sequence] to CompositePoolEntry
+
+struct LootFunction {
+	function: (
+		#[until="1.16"] #[id] LootFunctionType |
+		#[since="1.16"] #[id="loot_function_type"] string |
+	),
+	...minecraft:loot_function[[function]],
+}
+
+struct LootCondition {
+	condition: (
+		#[until="1.16"] #[id] LootConditionType |
+		#[since="1.16"] #[id="loot_condition_type"] string |
+	),
+	...minecraft:loot_condition[[condition]],
+}
+
+// Until 1.16
+enum(string) LootEntryType {
+	Alternatives = "alternatives",
+	Dynamic = "dynamic",
+	Empty = "empty",
+	group = "group",
+	Item = "item",
+	LootTable = "loot_table",
+	Sequence = "sequence",
+	Tag = "tag",
+}
+
+// Until 1.16
+enum(string) LootFunctionType {
+	ApplyBonus = "apply_bonus",
+	CopyName = "copy_name",
+	CopyNbt = "copy_nbt",
+	CopyState = "copy_state",
+	EnchantRandomly = "enchant_randomly",
+	EnchantWithLevels = "enchant_with_levels",
+	ExplosionDecay = "explosion_decay",
+	ExplorationMap = "exploration_map",
+	FillPlayerHead = "fill_player_head",
+	FurnaceSmelt = "furnace_smelt",
+	LimitCount = "limit_count",
+	LootingEnchant = "looting_enchant",
+	SetAttributes = "set_attributes",
+	SetContents = "set_contents",
+	SetCount = "set_count",
+	SetDamage = "set_damage",
+	SetLootTable = "set_loot_table",
+	SetLore = "set_lore",
+	SetName = "set_name",
+	SetNbt = "set_nbt",
+	SetStewEffect = "set_stew_effect",
+}
+
+// Until 1.16
+enum(string) LootConditionType {
+	Alternative = "alternative",
+	BlockStateProperty = "block_state_property",
+	DamageSourceProperties = "damage_source_properties",
+	EntityProperties = "entity_properties",
+	EntityScores = "entity_scores",
+	Inverted = "inverted",
+	KilledByPlayer = "killed_by_player",
+	LocationCheck = "location_check",
+	MatchTool = "match_tool",
+	RandomChance = "random_chance",
+	RandomChanceWithLooting = "random_chance_with_looting",
+	Reference = "reference",
+	SurvivesExplosion = "survives_explosion",
+	TableBonus = "table_bonus",
+	TimeCheck = "time_check",
+	WeatherCheck = "weather_check",
+}

@@ -1,0 +1,34 @@
+use ::java::data::util::SoundEventRef
+
+#[since="1.20.5"]
+dispatch minecraft:resource[wolf_variant] to struct WolfVariant {
+	#[until="1.21.5"]
+	...struct {
+		biomes: (#[id(registry="worldgen/biome",tags="allowed")] string | [#[id="worldgen/biome"] string]),
+		wild_texture: #[id="texture"] string,
+		tame_texture: #[id="texture"] string,
+		angry_texture: #[id="texture"] string,
+	},
+	#[since="1.21.5"]
+	...struct {
+		/// The texture set to use for this wolf variant.
+		assets: WolfVariantAssetInfo,
+		...super::SpawnPrioritySelectors,
+	},
+}
+
+struct WolfVariantAssetInfo {
+	wild: #[id="texture"] string,
+	tame: #[id="texture"] string,
+	angry: #[id="texture"] string,
+}
+
+#[since="1.21.5"]
+dispatch minecraft:resource[wolf_sound_variant] to struct WolfSoundVariant {
+	ambient_sound: SoundEventRef,
+	death_sound: SoundEventRef,
+	growl_sound: SoundEventRef,
+	hurt_sound: SoundEventRef,
+	pant_sound: SoundEventRef,
+	whine_sound: SoundEventRef,
+}

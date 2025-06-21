@@ -1,0 +1,109 @@
+use ::java::util::direction::Direction
+
+type ModelRef = #[id(registry="model",exclude=["builtin/generated","builtin/entity"])] string
+
+dispatch minecraft:resource[model] to struct Model {
+	parent?: #[id="model"] string,
+	ambientocclusion?: boolean,
+	gui_light?: ("front" | "side"),
+	textures?: struct ModelTextures {
+		[#[texture_slot(kind="definition")] string]: #[texture_slot(kind="value")] string,
+	},
+	elements?: [ModelElement],
+	display?: struct ModelDisplay {
+		[CustomizableItemDisplayContext]: struct ItemTransform {
+			rotation?: [float] @ 3,
+			translation?: [float @ -80..80] @ 3,
+			scale?: [float @ -4..4] @ 3,
+		},
+	},
+	#[until="1.21.4"]
+	overrides?: [struct ModelOverride {
+		predicate: struct ModelOverridePredicates {
+			[Predicates]: float,
+		},
+		model: ModelRef,
+	}],
+}
+
+struct ModelElement {
+	from: [float @ -16..32] @ 3,
+	to: [float @ -16..32] @ 3,
+	faces: struct ModelElementFaceMap {
+		[Direction]: struct ModelElementFace {
+			texture: #[texture_slot(kind="reference")] string,
+			uv?: [float] @ 4,
+			cullface?: Direction,
+			rotation?: (0 | 90 | 180 | 270),
+			tintindex?: int,
+		},
+	},
+	rotation?: struct ModelElementRotation {
+		origin: [float] @ 3,
+		axis: Axis,
+		angle: (
+			#[until="1.21.6"] (-45.0 | -22.5 | 0.0 | 22.5 | 45.0) |
+			#[since="1.21.6"] float @ -45..45 |
+		),
+		/// Defaults to `false`.
+		rescale?: boolean,
+	},
+	shade?: boolean,
+	#[since="1.21.2"]
+	light_emission?: int @ 0..15,
+}
+
+enum(string) Axis {
+	X = "x",
+	Y = "y",
+	Z = "z",
+}
+
+enum(string) ItemDisplayContext {
+	None = "none",
+	FirstPersonRighthand = "firstperson_righthand",
+	FirstPersonLefthand = "firstperson_lefthand",
+	ThirdPersonRighthand = "thirdperson_righthand",
+	ThirdPersonLefthand = "thirdperson_lefthand",
+	Gui = "gui",
+	Head = "head",
+	Ground = "ground",
+	Fixed = "fixed",
+}
+
+enum(string) CustomizableItemDisplayContext {
+	FirstPersonRighthand = "firstperson_righthand",
+	FirstPersonLefthand = "firstperson_lefthand",
+	ThirdPersonRighthand = "thirdperson_righthand",
+	ThirdPersonLefthand = "thirdperson_lefthand",
+	Gui = "gui",
+	Head = "head",
+	Ground = "ground",
+	Fixed = "fixed",
+}
+
+enum(string) Predicates {
+	Angle = "angle",
+	Blocking = "blocking",
+	Broken = "broken",
+	Cast = "cast",
+	Charged = "charged",
+	Cooldown = "cooldown",
+	CustomModelData = "custom_model_data",
+	Damage = "damage",
+	Damaged = "damaged",
+	Firework = "firework",
+	/// The honey level on bee nests and beehives.
+	HoneyLevel = "honey_level",
+	Lefthanded = "lefthanded",
+	/// The `level` block state on light items.
+	Level = "level",
+	Pull = "pull",
+	Pulling = "pulling",
+	/// Whether the trident is being used.
+	Throwing = "throwing",
+	Time = "time",
+	/// Whether the goat horn is being used.
+	Tooting = "tooting",
+	TrimType = "trim_type",
+}

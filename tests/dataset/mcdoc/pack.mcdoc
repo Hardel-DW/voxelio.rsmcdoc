@@ -1,0 +1,52 @@
+use ::java::util::text::Text
+use ::java::util::InclusiveRange
+
+// `supported_formats` and `overlays` were introduced in 1.20.2,
+// but multi-version packs will use these with an older pack_format.
+struct Pack {
+	pack: struct PackBase {
+		description: Text,
+		pack_format: #[pack_format] int,
+		#[since="1.20.2"]
+		supported_formats?: InclusiveRange<#[pack_format] int>,
+	},
+	#[since="1.19"]
+	filter?: PackFilter,
+	#[since="1.19.3"]
+	features?: PackFeatures,
+	#[since="1.20.2"]
+	overlays?: PackOverlays,
+}
+
+struct PackFilter {
+	block: [BlockPattern],
+}
+
+struct BlockPattern {
+	namespace?: #[regex_pattern] string,
+	path?: #[regex_pattern] string,
+}
+
+struct PackFeatures {
+	enabled: [#[id] FeatureFlag],
+}
+
+enum(string) FeatureFlag {
+	Vanilla = "vanilla",
+	#[until="1.20"] Update120 = "update_1_20",
+	#[until="1.21.2"] Bundle = "bundle",
+	#[since="1.20.2"] TradeRebalance = "trade_rebalance",
+	#[since="1.20.3"] #[until="1.21"] Update121 = "update_1_21",
+	#[since="1.21.2"] RedstoneExperiments = "redstone_experiments",
+	#[since="1.21.2"] MinecartImprovements = "minecart_improvements",
+	#[since="1.21.2"] #[until="1.21.4"] WinterDrop = "winter_drop",
+}
+
+struct PackOverlays {
+	entries: [PackOverlay],
+}
+
+struct PackOverlay {
+	directory: string @ 1..,
+	formats: InclusiveRange<#[pack_format] int>,
+}

@@ -1,0 +1,60 @@
+dispatch minecraft:block_entity[skull] to struct Skull {
+	...super::BlockEntity,
+	/// Owner of the skull.
+	#[until="1.16"]
+	Owner?: SkullOwner,
+	#[since="1.16"] #[until="1.20.5"]
+	SkullOwner?: SkullOwner,
+	/// Name of the owner, if exists will be converted to SkullOwner.
+	ExtraType?: string,
+	/// Sound to play when played with a note block.
+	/// Only works on player head.
+	#[since="1.19.3"]
+	note_block_sound?: minecraft:data_component[note_block_sound],
+	/// Only works on player head.
+	#[since="1.20.5"]
+	profile?: minecraft:data_component[profile],
+	#[since="1.20.5"]
+	custom_name?: minecraft:data_component[custom_name],
+}
+
+dispatch minecraft:block[player_head, player_wall_head] to minecraft:block_entity[skull]
+
+// These are all technically the `skull` block entity, and the player head nbt isn't removed, but it isn't retained in the item form, and the fields do nothing, so these are just cast to `BlockEntity`
+dispatch minecraft:block[
+	skeleton_skull,
+	wither_skeleton_skull,
+	creeper_head,
+	zombie_head,
+	dragon_head,
+	skeleton_wall_skull,
+	wither_skeleton_wall_skull,
+	creeper_wall_head,
+	zombie_wall_head,
+	dragon_wall_head,
+] to (
+	#[until="1.20.5"] super::BlockEntity |
+	#[since="1.20.5"] Skull |
+)
+
+struct SkullOwner {
+	/// Optional.
+	#[uuid]
+	Id?: (
+		#[until="1.16"] string |
+		#[since="1.16"] int[] @ 4 |
+	),
+	/// If missing appears as a steve head.
+	Name?: string,
+	Properties?: Properties,
+}
+
+struct Properties {
+	textures?: [Texture],
+}
+
+struct Texture {
+	Signature?: string,
+	/// Base64 encoded JSON value of the texture index.
+	Value?: string,
+}
