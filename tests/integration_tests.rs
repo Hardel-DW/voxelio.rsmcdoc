@@ -166,8 +166,7 @@ fn test_simple_mcdoc_parsing() {
         }
     }
     
-    let mut validator = McDocValidator::new();
-    validator.load_registry("test".to_string(), "1.20.4".to_string(), &serde_json::json!({})).ok();
+    let validator = McDocValidator::new();
     let test_json = serde_json::json!({"type": "minecraft:loot_table"});
     let _result = validator.validate_json(&test_json, "minecraft:loot_table/test");
     println!("✅ Simple MCDOC resolution PASSED!");
@@ -390,7 +389,7 @@ fn test_registry_integration() {
 
 #[test]
 fn test_datapack_resource_extraction() {
-    let validator = McDocValidator::new();
+    let _validator = McDocValidator::new();
     
     // Test various datapack paths
     let paths = vec![

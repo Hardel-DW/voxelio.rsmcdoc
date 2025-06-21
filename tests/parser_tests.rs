@@ -1,3 +1,4 @@
+use std::fs;
 use voxel_rsmcdoc::{
     lexer::{Lexer, Token, TokenWithPos, Position},
     parser::{Parser, ImportPath, DispatchTarget, TypeExpression, LiteralValue, Declaration, DynamicReferenceType}
@@ -276,10 +277,10 @@ fn debug_complex_struct_tokens() {
     
     let mut parser = Parser::new(tokens);
     match parser.parse() {
-        Ok(ast) => {
+        Ok(_ast) => {
             // Parsing successful
         }
-        Err(errors) => {
+        Err(_errors) => {
             // Expected with simplified parser
         }
     }
@@ -389,10 +390,10 @@ fn test_large_loot_table_parsing() {
     let mut parser = Parser::new(tokens);
     
     match parser.parse() {
-        Ok(ast) => {
+        Ok(_ast) => {
             // Parsing successful
         }
-        Err(errors) => {
+        Err(_errors) => {
             // Expected with simplified parser
         }
     }

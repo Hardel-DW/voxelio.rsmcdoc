@@ -233,6 +233,7 @@ impl<'input> Lexer<'input> {
     
     /// Read a complete annotation #[...]
     fn read_annotation(&mut self) -> Result<&'input str, ParseError> {
+        let start_offset = self.current_pos.offset;  // Include the '#'
         self.advance();
         
         if self.current_char != Some('[') {
@@ -242,7 +243,6 @@ impl<'input> Lexer<'input> {
             ));
         }
         
-        let start_offset = self.current_pos.offset;
         self.advance();
         
         let mut bracket_depth = 1;
