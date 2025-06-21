@@ -33,8 +33,8 @@ fn test_identifiers_and_keywords() {
     assert_eq!(tokens[0].token, Token::Use);
     assert_eq!(tokens[1].token, Token::Identifier("MyStruct"));
     assert_eq!(tokens[2].token, Token::Identifier("identifier_name"));
-    assert_eq!(tokens[3].token, Token::Boolean(true));
-    assert_eq!(tokens[4].token, Token::Boolean(false));
+    assert_eq!(tokens[3].token, Token::True);
+    assert_eq!(tokens[4].token, Token::False);
 }
 
 #[test]

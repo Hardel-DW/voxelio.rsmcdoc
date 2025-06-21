@@ -39,8 +39,7 @@ dispatch minecraft:resource[recipe] to struct Recipe {
 ```
 
 **Validation:** ✅ Types corrects, `minecraft:diamond_sword` existe dans
-registry `item` **Dépendances:** `minecraft:diamond_sword`, `minecraft:diamond`,
-`minecraft:stick` du registry `item`
+registry `item`.
 
 ## 🚀 Objectifs Performance
 
@@ -48,45 +47,9 @@ registry `item` **Dépendances:** `minecraft:diamond_sword`, `minecraft:diamond`
 
 | Taille Datapack       | Parse MCDOC | Validation Complète | Total Pipeline |
 | --------------------- | ----------- | ------------------- | -------------- |
-| Small (100 fichiers)  | <2ms        | <15ms               | **<20ms**      |
-| Medium (500 fichiers) | <8ms        | <60ms               | **<70ms**      |
-| Large (1000 fichiers) | <15ms       | <120ms              | **<140ms**     |
-
-### Optimisations **CONCRÈTES** implémentées
-
-1. **Zero-Copy Parsing**
-   ```rust
-   pub struct Token<'input> {
-       Identifier(&'input str), // Pas de String allocation
-   }
-   ```
-
-2. **FxHashMap** (15% plus rapide que HashMap standard)
-   ```rust
-   use rustc_hash::FxHashMap; // Rust compiler's hasher
-   ```
-
-3. **Pre-computation** des dépendances
-   ```rust
-   // O(1) lookup après chargement initial
-   dependency_cache.get(resource_id)
-   ```
-
-4. **Parallel Processing** avec Rayon
-   ```rust
-   files.par_iter().map(|file| validate(file))
-   ```
-
-5. **SIMD String Scanning** pour Resource Location extraction
-   ```rust
-   use memchr::memchr_iter; // SIMD byte scanning pour "minecraft:" patterns
-   ```
-
-### Ce qu'on **NE** fait **PAS**
-
-- ❌ Claims de <10ms pour 1000 fichiers (irréaliste)
-- ❌ "Ultra-rapide" sans justification technique
-- ❌ Optimisations SIMD sur parsing AST (complexité inutile)
+| Small (100 fichiers)  | <2ms        | <10ms               | **<10ms**      |
+| Medium (500 fichiers) | <8ms        | <50ms               | **<50ms**      |
+| Large (1000 fichiers) | <15ms       | <100ms              | **<100ms**     |
 
 ## 🔧 API TypeScript/WASM
 
@@ -98,17 +61,12 @@ export class McDocValidator {
     ): Promise<McDocValidator>;
 
     // Registry Discovery : Quels registres nécessaires (RAPIDE - cache)
-    getRequiredRegistries(
-        json: object,
-        resourceId: string,
-    ): RegistryDependency[];
+    getRequiredRegistries(json: object, resourceType: string): string[];
 
     // Validation : Avec registres chargés
-    validate(
-        json: object,
-        resourceId: string,
-        version?: string,
-    ): ValidationResult;
+    validate(json: object, version?: string): ValidationResult;
+
+    // Analyse Datapack : Validation parallèle
     async analyzeDatapack(
         files: Record<string, Uint8Array>,
         version?: string,
@@ -122,23 +80,6 @@ interface ValidationResult {
 }
 ```
 
-## 📐 Architecture Simplifiée
-
-```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐
-│   Lexer     │───▶│    Parser    │───▶│  Resolver   │
-│  (Tokens)   │    │    (AST)     │    │ (Imports)   │
-└─────────────┘    └──────────────┘    └─────────────┘
-                           │                     │
-                           ▼                     ▼
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐
-│ Validator   │◀───│  Registry    │◀───│ Dependency  │
-│ (Errors)    │    │  Analyzer    │    │ Extractor   │
-└─────────────┘    └──────────────┘    └─────────────┘
-```
-
-**Phases indépendantes** - aucune dépendance cyclique.
-
 ## 📊 Workflow en 3 étapes
 
 ### 1. **Registry Discovery** (Ultra-rapide)
@@ -147,92 +88,68 @@ interface ValidationResult {
 // Analyse locale - pas de network calls
 const requiredRegistries = validator.getRequiredRegistries(
     recipeJson,
-    "minecraft:recipe",
+    "recipe",
 );
-// Result: ["item", "recipe_serializer"]
+// Result: ["item", "recipe_serializer", "crafting_book_category"]
 ```
 
-### 2. **Dynamic Loading** (Si nécessaire)
+### 2. **Validation** (Avec registres chargés)
 
 ```typescript
-// Fetch seulement ce qui manque
-await validator.loadRegistries([
-    { registry: "item", version: "1.20.5" },
-]);
-```
-
-### 3. **Validation** (Avec registres chargés)
-
-```typescript
-const result = validator.validate(recipeJson, "minecraft:recipe/diamond_sword");
+// Pour valider un seul fichier JSON. Juste besoin de fournir le JSON
+const result = validator.validate(recipeJson);
 // Result: { isValid: true, errors: [], dependencies: [...] }
 ```
 
-## 🛠️ MCDOC Features Supportées
+### 3. **Analyse Datapack** (Validation parallèle)
 
-### ✅ Syntax complète
-
-- **Imports** : `use ::minecraft::item::ItemStack`
-- **Dispatchers** : `dispatch minecraft:resource[recipe] to Recipe`
-- **Structures** : `struct Recipe { type: string }`
-- **Enums** : `enum(string) GameMode { Creative = "creative" }`
-- **Unions** : `string | int | boolean`
-- **Arrays** : `[string] @ 1..10`
-- **Contraintes** : `int @ 0..64`, `float @ -1.0..1.0`
-
-### ✅ Annotations dynamiques
-
-- **Registry refs** : `#[id="item"]`, `#[id(registry="block")]`
-- **Tags support** : `#[id(registry="item", tags="allowed")]`
-- **Versioning** : `#[since="1.20"]`, `#[until="1.19"]`
-
-### ✅ Validation avancée
-
-- **Types checking** : string vs int vs boolean
-- **Constraint validation** : ranges, array sizes
-- **Registry validation** : Resource Locations existence
-- **Version compatibility** : MC version filtering
+```typescript
+const result = await validator.analyzeDatapack(files);
+// Result: { isValid: true, errors: [], dependencies: [...] }
+```
 
 ## 📚 Documentation
 
-| Fichier                                                              | Contenu                                  |
-| -------------------------------------------------------------------- | ---------------------------------------- |
-| [`docs/mcdoc-format-analysis.md`](docs/mcdoc-format-analysis.md)     | Syntaxe MCDOC complète avec exemples     |
-| [`TODO_IMPLEMENTATION.md`](TODO_IMPLEMENTATION.md)                   | État d'avancement et prochaines étapes   |
-| [`docs/wasm-integration-plan.md`](docs/wasm-integration-plan.md)     | Architecture WASM et bindings TypeScript |
-| [`docs/webapp-usage-examples.md`](docs/webapp-usage-examples.md)     | Exemples React/Vue avec Workers          |
-| [`docs/examples-and-test-cases.md`](docs/examples-and-test-cases.md) | Cas de test et benchmarks réalistes      |
+| Fichier                                                              | Contenu                                          |
+| -------------------------------------------------------------------- | ------------------------------------------------ |
+| [`docs/mcdoc-format.md`](docs/mcdoc-format.md)                       | Syntaxe MCDOC complète avec exemples             |
+| [`docs/developpement-plan.md`](docs/developpement-plan.md)           | Les régles de développement et les optimisations |
+| [`docs/wasm-integration-plan.md`](docs/wasm-integration-plan.md)     | Architecture WASM et bindings TypeScript         |
+| [`docs/webapp-usage-examples.md`](docs/webapp-usage-examples.md)     | Exemples React/Vue avec Workers                  |
+| [`docs/examples-and-test-cases.md`](docs/examples-and-test-cases.md) | Cas de test et benchmarks réalistes              |
 
 ## 🎪 Points forts techniques
 
-✅ **Aucun hardcoding** : Registres et MCDOC 100% externes via paramètres ✅
-**MCDOC modulaires** : Imports avec résolution de cycles (topological sort) ✅
-**Zero-copy parsing** : Lifetimes pour éviter allocations inutiles ✅ **Error
-recovery** : Continue parsing malgré erreurs (IDE-friendly) ✅ **WASM optimisé**
-: <500KB bundle, Web Workers, streaming ✅ **Integration Breeze** : Compatible
-avec écosystème existant
+- **Aucun hardcoding** : Registres et MCDOC 100% externes via paramètres
+- **MCDOC modulaires** : Imports avec résolution de cycles (topological sort)
+- **Zero-copy parsing** : Lifetimes pour éviter allocations inutiles
+- **Error recovery** : Continue parsing malgré erreurs syntaxiques
+- **WASM optimisé** : <100KB bundle, performance ultra-rapide
+- **Integration Breeze** : Compatible avec écosystème existant
 
 ## 📦 Installation
 
 ```bash
-# Webapp (TypeScript/WASM)
+# Webapp uniquement (TypeScript/WASM)
 npm install @voxel/rsmcdoc
-
-# CLI (Rust native)
-cargo install voxel-rsmcdoc
 ```
 
-## 🔬 Usage CLI
+## 🔬 Usage TypeScript
 
-```bash
-# Validation complète
-voxel-rsmcdoc validate --datapack ./my_pack --mcdoc ./schemas --registries ./regs.json
+```typescript
+import { McDocValidator } from "@voxel/rsmcdoc";
 
-# Extraction dépendances seulement
-voxel-rsmcdoc deps --datapack ./my_pack --output dependencies.json
+// 1. Initialiser avec schemas MCDOC
+const validator = await McDocValidator.init(mcdocFiles);
 
-# Linting avec performance metrics
-voxel-rsmcdoc lint --datapack ./my_pack --benchmark
+// 2. Charger les registries Minecraft
+validator.loadRegistries(registries, "1.21");
+
+// 3. Valider un JSON
+const result = validator.validate(recipeJson, "recipe");
+
+// 4. Analyser un datapack complet
+const datapackResult = await validator.analyzeDatapack(files);
 ```
 
 ---

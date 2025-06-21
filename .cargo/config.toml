@@ -7,8 +7,8 @@ rustflags = [
   # "-Z", "merge-functions=aggressive", # Merge similar functions (nightly only)
 ]
 
-[build]
-target = "wasm32-unknown-unknown"
+# [build]
+# target = "wasm32-unknown-unknown"
 
 [profile.release]
 opt-level = "s"

@@ -1,39 +1,31 @@
-//! # Voxel-RSMCDOC
-//! 
-//! Parser MCDOC en Rust pour validation ultra-rapide de datapacks Minecraft.
-//! 
-//! ## Architecture
-//! 
-//! 1. **Lexer** : Tokenisation zero-copy avec lifetimes
-//! 2. **Parser** : Construction AST avec error recovery
-//! 3. **Resolver** : Résolution imports avec topological sort
-//! 4. **Validator** : Validation JSON avec registry integration
-//! 
-//! ## Performance Targets
-//! 
-//! - Small (100 files): <20ms total
-//! - Medium (500 files): <70ms total  
-//! - Large (1000 files): <150ms total
+//! Voxel RSMCDOC - Parser MCDOC en Rust
 
-pub mod error;
 pub mod lexer;
 pub mod parser;
-pub mod registry;
-pub mod resolver;
+pub mod error;
 pub mod types;
+pub mod registry;
+// resolver module SUPPRIMÉ - Import resolution côté TypeScript
 pub mod validator;
-
-#[cfg(feature = "wasm")]
 pub mod wasm;
 
-// Re-exports for public API
+// Re-exports principaux pour compatibilité
+pub use error::{ParseError, SourcePos, ErrorType};
+pub use parser::{Parser, McDocFile, Declaration, StructDeclaration, FieldDeclaration, TypeExpression}; 
+pub use lexer::{Lexer, Token, TokenWithPos, Position};
+pub use types::*;
+pub use registry::Registry;
+// ImportResolver supprimé avec le module resolver
 pub use validator::McDocValidator;
-pub use types::{ValidationResult, DatapackResult, McDocError, McDocDependency, MinecraftVersion};
-pub use error::{McDocParserError, ErrorType};
-pub use lexer::{Token, TokenWithPos, Position};
-pub use parser::{McDocFile, TypeExpression, FieldDeclaration, ImportStatement};
-pub use registry::{Registry, RegistryManager};
-pub use resolver::ImportResolver;
+
+/// Point d'entrée principal pour parser un fichier MCDOC
+pub fn parse_mcdoc(input: &str) -> Result<McDocFile, Vec<ParseError>> {
+    let mut lexer = Lexer::new(input);
+    let tokens = lexer.tokenize().map_err(|e| vec![e])?;
+    
+    let mut parser = Parser::new(tokens);
+    parser.parse()
+}
 
 
 
@@ -47,12 +39,12 @@ pub struct ResourceId {
 impl ResourceId {
     /// Parse a resource identifier string like "minecraft:diamond_sword"
     /// If no namespace provided, it stays as-is without default namespace
-    pub fn parse(input: &str) -> Result<Self, McDocParserError> {
+    pub fn parse(input: &str) -> Result<Self, ParseError> {
         Self::parse_with_default_namespace(input, None)
     }
     
     /// Parse with optional default namespace
-    pub fn parse_with_default_namespace(input: &str, default_namespace: Option<&str>) -> Result<Self, McDocParserError> {
+    pub fn parse_with_default_namespace(input: &str, default_namespace: Option<&str>) -> Result<Self, ParseError> {
         let parts: Vec<&str> = input.split(':').collect();
         
         match parts.as_slice() {
@@ -72,7 +64,7 @@ impl ResourceId {
                     }),
                 }
             },
-            _ => Err(McDocParserError::InvalidResourceId(input.to_string())),
+            _ => Err(ParseError::InvalidResourceId(input.to_string())),
         }
     }
     
@@ -89,5 +81,3 @@ pub struct RegistryDependency {
     pub identifier: String,
     pub is_tag: bool,
 }
-
- 

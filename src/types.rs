@@ -1,9 +1,9 @@
 //! Types publics pour l'API MCDOC
-//! 
-//! Types sérialisables pour WASM et intégration TypeScript.
 
-use serde::{Deserialize, Serialize};
-use crate::error::{ErrorType, McDocParserError};
+use serde::{Deserialize, Serialize, Serializer, Deserializer};
+use crate::error::{ErrorType, ParseError};
+use serde::ser::SerializeMap;
+use serde::de::{Visitor, MapAccess};
 
 /// Dépendance registry extraite d'un JSON
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,9 +39,11 @@ pub struct McDocError {
     pub column: Option<u32>,
 }
 
-impl From<McDocParserError> for McDocError {
-    fn from(error: McDocParserError) -> Self {
-        let (line, column) = error.position().map(|(l, c)| (Some(l), Some(c))).unwrap_or((None, None));
+impl From<ParseError> for McDocError {
+    fn from(error: ParseError) -> Self {
+        let (line, column) = error.position()
+            .map(|pos| (Some(pos.line), Some(pos.column)))
+            .unwrap_or((None, None));
         
         McDocError {
             file: String::new(), // Will be set by caller
@@ -107,7 +109,8 @@ pub struct DatapackResult {
     pub valid_files: usize,
     /// Erreurs de validation par fichier
     pub errors: Vec<FileError>,
-    /// Toutes les dépendances groupées par registry
+    /// Toutes les dépendances groupées par registry  
+    #[serde(serialize_with = "serialize_fx_hashmap", deserialize_with = "deserialize_fx_hashmap")]
     pub dependencies: rustc_hash::FxHashMap<String, Vec<String>>,
     /// Temps de traitement total en millisecondes
     pub analysis_time_ms: u32,
@@ -166,59 +169,52 @@ impl DatapackResult {
     }
 }
 
-/// Information sur une version de Minecraft
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MinecraftVersion {
-    pub major: u32,
-    pub minor: u32,
-    pub patch: u32,
+/// Version Minecraft - VERSION SIMPLIFIÉE (type alias)
+/// La parsing complexe est gérée côté JavaScript selon spec
+pub type MinecraftVersion = String;
+
+fn serialize_fx_hashmap<S>(
+    map: &rustc_hash::FxHashMap<String, Vec<String>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut ser_map = serializer.serialize_map(Some(map.len()))?;
+    for (key, value) in map {
+        ser_map.serialize_entry(key, value)?;
+    }
+    ser_map.end()
 }
 
-impl MinecraftVersion {
-    /// Parser une version string comme "1.20.5"
-    pub fn parse(version: &str) -> Option<Self> {
-        let parts: Vec<&str> = version.split('.').collect();
-        
-        match parts.as_slice() {
-            [major, minor] => {
-                Some(MinecraftVersion {
-                    major: major.parse().ok()?,
-                    minor: minor.parse().ok()?,
-                    patch: 0,
-                })
+fn deserialize_fx_hashmap<'de, D>(
+    deserializer: D,
+) -> Result<rustc_hash::FxHashMap<String, Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct FxHashMapVisitor;
+
+    impl<'de> Visitor<'de> for FxHashMapVisitor {
+        type Value = rustc_hash::FxHashMap<String, Vec<String>>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a map")
+        }
+
+        fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut map = rustc_hash::FxHashMap::default();
+
+            while let Some((key, value)) = access.next_entry()? {
+                map.insert(key, value);
             }
-            [major, minor, patch] => {
-                Some(MinecraftVersion {
-                    major: major.parse().ok()?,
-                    minor: minor.parse().ok()?,
-                    patch: patch.parse().ok()?,
-                })
-            }
-            _ => None,
+
+            Ok(map)
         }
     }
-    
-    /// Vérifier si cette version est >= à une autre
-    pub fn is_at_least(&self, other: &MinecraftVersion) -> bool {
-        match self.major.cmp(&other.major) {
-            std::cmp::Ordering::Greater => true,
-            std::cmp::Ordering::Less => false,
-            std::cmp::Ordering::Equal => {
-                match self.minor.cmp(&other.minor) {
-                    std::cmp::Ordering::Greater => true,
-                    std::cmp::Ordering::Less => false,
-                    std::cmp::Ordering::Equal => self.patch >= other.patch,
-                }
-            }
-        }
-    }
-    
-    /// Convertir en string
-    pub fn to_string(&self) -> String {
-        if self.patch == 0 {
-            format!("{}.{}", self.major, self.minor)
-        } else {
-            format!("{}.{}.{}", self.major, self.minor, self.patch)
-        }
-    }
+
+    deserializer.deserialize_map(FxHashMapVisitor)
 } 

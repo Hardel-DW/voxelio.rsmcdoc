@@ -1,8 +1,7 @@
 //! Lexer MCDOC avec zero-copy parsing
-//! 
-//! Tokenise les fichiers MCDOC sans allocation grâce aux lifetimes Rust.
 
-use crate::error::McDocParserError;
+use crate::error::ParseError;
+use serde::{Deserialize, Serialize};
 
 /// Token MCDOC avec référence zero-copy au source
 #[derive(Debug, Clone, PartialEq)]
@@ -11,7 +10,8 @@ pub enum Token<'input> {
     Identifier(&'input str),
     String(&'input str),           // "hello"
     Number(f64),                   // 123, 123.456
-    Boolean(bool),                 // true, false
+    True,                         // true
+    False,                        // false
     
     // Mots-clés
     Use,                          // use
@@ -43,9 +43,10 @@ pub enum Token<'input> {
     DotDotDot,                    // ...
     DotDot,                       // ..
     Percent,                      // %
-    Equals,                       // =
-    LeftAngle,                    // <
-    RightAngle,                   // >
+    Equal,                        // = 
+    Equals,                       // = (compatibility alias)
+    Less,                         // <
+    Greater,                      // >
     
     // Annotations
     Annotation(&'input str),       // #[id="item"]
@@ -57,10 +58,11 @@ pub enum Token<'input> {
     // Special
     Eof,
     Newline,
+    Whitespace,                   // spaces, tabs
 }
 
 /// Position dans le fichier source
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Position {
     pub line: u32,
     pub column: u32,
@@ -122,7 +124,7 @@ impl<'input> Lexer<'input> {
     }
     
     /// Ignorer les espaces et les commentaires
-    fn skip_whitespace_and_comments(&mut self) -> Result<(), McDocParserError> {
+    fn skip_whitespace_and_comments(&mut self) -> Result<(), ParseError> {
         while let Some(ch) = self.current_char {
             match ch {
                 ' ' | '\t' | '\r' => self.advance(),
@@ -158,10 +160,10 @@ impl<'input> Lexer<'input> {
                     }
                     
                     if depth > 0 {
-                        return Err(McDocParserError::UnterminatedString {
-                            line: self.current_pos.line,
-                            column: self.current_pos.column,
-                        });
+                        return Err(ParseError::lexer(
+                            "Unterminated block comment", 
+                            crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+                        ));
                     }
                 }
                 _ => break,
@@ -186,9 +188,9 @@ impl<'input> Lexer<'input> {
     }
     
     /// Lire un nombre
-    fn read_number(&mut self) -> Result<f64, McDocParserError> {
+    fn read_number(&mut self) -> Result<f64, ParseError> {
+        let _start_pos = self.current_pos;
         let start_offset = self.current_pos.offset;
-        let start_pos = self.current_pos;
         
         // Lire la partie entière
         while let Some(ch) = self.current_char {
@@ -212,16 +214,15 @@ impl<'input> Lexer<'input> {
         }
         
         let number_str = &self.input[start_offset..self.current_pos.offset];
-        number_str.parse().map_err(|_| McDocParserError::InvalidNumber {
-            value: number_str.to_string(),
-            line: start_pos.line,
-            column: start_pos.column,
-        })
+        number_str.parse().map_err(|_| ParseError::lexer(
+            format!("Invalid number '{}'", number_str),
+            crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+        ))
     }
     
     /// Lire une chaîne de caractères
-    fn read_string(&mut self) -> Result<&'input str, McDocParserError> {
-        let start_pos = self.current_pos;
+    fn read_string(&mut self) -> Result<&'input str, ParseError> {
+        let _start_pos = self.current_pos;
         self.advance(); // Skip opening quote
         
         let content_start = self.current_pos.offset;
@@ -240,34 +241,33 @@ impl<'input> Lexer<'input> {
                     }
                 }
                 '\n' => {
-                    return Err(McDocParserError::UnterminatedString {
-                        line: start_pos.line,
-                        column: start_pos.column,
-                    });
+                    return Err(ParseError::lexer(
+                        "Unterminated string",
+                        crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+                    ));
                 }
                 _ => self.advance(),
             }
         }
         
-        Err(McDocParserError::UnterminatedString {
-            line: start_pos.line,
-            column: start_pos.column,
-        })
+        Err(ParseError::lexer(
+            "Unterminated string",
+            crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+        ))
     }
     
     /// Lire une annotation complète #[...]
-    fn read_annotation(&mut self) -> Result<&'input str, McDocParserError> {
+    fn read_annotation(&mut self) -> Result<&'input str, ParseError> {
         let start_offset = self.current_pos.offset;
-        let start_pos = self.current_pos;
+        let _start_pos = self.current_pos;
         
         self.advance(); // Skip '#'
         
         if self.current_char != Some('[') {
-            return Err(McDocParserError::InvalidAnnotation {
-                annotation: "#".to_string(),
-                line: start_pos.line,
-                column: start_pos.column,
-            });
+            return Err(ParseError::lexer(
+                "Invalid annotation format",
+                crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+            ));
         }
         
         let mut depth = 0;
@@ -288,11 +288,10 @@ impl<'input> Lexer<'input> {
             }
         }
         
-        Err(McDocParserError::InvalidAnnotation {
-            annotation: self.input[start_offset..self.current_pos.offset].to_string(),
-            line: start_pos.line,
-            column: start_pos.column,
-        })
+        Err(ParseError::lexer(
+            "Invalid annotation format",
+            crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+        ))
     }
     
     /// Déterminer le type de token pour un identifiant
@@ -305,14 +304,14 @@ impl<'input> Lexer<'input> {
             "dispatch" => Token::Dispatch,
             "to" => Token::To,
             "super" => Token::Super,
-            "true" => Token::Boolean(true),
-            "false" => Token::Boolean(false),
+            "true" => Token::True,
+            "false" => Token::False,
             _ => Token::Identifier(ident),
         }
     }
     
     /// Obtenir le prochain token
-    pub fn next_token(&mut self) -> Result<TokenWithPos<'input>, McDocParserError> {
+    pub fn next_token(&mut self) -> Result<TokenWithPos<'input>, ParseError> {
         self.skip_whitespace_and_comments()?;
         
         let pos = self.current_pos;
@@ -382,7 +381,7 @@ impl<'input> Lexer<'input> {
                 }
                 Some('=') => {
                     self.advance();
-                    Token::Equals
+                    Token::Equal
                 }
                 Some('#') => {
                     let annotation = self.read_annotation()?;
@@ -412,22 +411,21 @@ impl<'input> Lexer<'input> {
                 }
                 Some('<') => {
                     self.advance();
-                    Token::LeftAngle
+                    Token::Less
                 }
                 Some('>') => {
                     self.advance();
-                    Token::RightAngle
+                    Token::Greater
                 }
                 Some(ch) if ch.is_alphabetic() || ch == '_' => {
                     let ident = self.read_identifier();
                     Self::identifier_to_token(ident)
                 }
                 Some(ch) => {
-                    return Err(McDocParserError::UnexpectedCharacter {
-                        char: ch,
-                        line: pos.line,
-                        column: pos.column,
-                    });
+                    return Err(ParseError::lexer(
+                        format!("Unexpected character '{}'", ch),
+                        crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+                    ));
                 }
             };
             
@@ -435,7 +433,7 @@ impl<'input> Lexer<'input> {
     }
     
     /// Tokeniser tout le fichier
-    pub fn tokenize(&mut self) -> Result<Vec<TokenWithPos<'input>>, McDocParserError> {
+    pub fn tokenize(&mut self) -> Result<Vec<TokenWithPos<'input>>, ParseError> {
         let mut tokens = Vec::new();
         
         loop {

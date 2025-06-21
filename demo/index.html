@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSMCDOC WASM Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 RSMCDOC WASM Parser Demo</h1>
+        <p>Phase 3 Implementation - Parse MCDOC structures directly in the browser!</p>
+
+        <div class="demo-section">
+            <h3>📋 WASM Module Status</h3>
+            <div id="wasm-status" class="status loading">Loading WASM module...</div>
+            <div id="version-info" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="demo-section">
+            <h3>🔧 MCDOC Parser Test</h3>
+            <p>Enter MCDOC content to parse:</p>
+            <textarea id="mcdoc-input" placeholder="struct Item {
+    id: string
+    count: int
+}">struct Test {
+    field: string
+    optional_field?: int
+}</textarea>
+            <br>
+            <button onclick="parseExample()">Parse MCDOC</button>
+            <button onclick="loadPreset('simple')">Load Simple Example</button>
+            <button onclick="loadPreset('complex')">Load Complex Example</button>
+            
+            <div id="parse-result" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="demo-section">
+            <h3>📊 Performance Metrics</h3>
+            <div id="performance-info" class="result">
+                <div>Parser calls: <span id="parse-count">0</span></div>
+                <div>Average parse time: <span id="avg-time">-</span>ms</div>
+                <div>Last parse size: <span id="last-size">-</span> chars</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html> 

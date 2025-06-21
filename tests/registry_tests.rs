@@ -1,124 +1,133 @@
 use voxel_rsmcdoc::registry::{Registry, RegistryManager};
+use serde_json::json;
 
 #[test]
 fn test_registry_creation() {
-    let mut registry = Registry::new("item".to_string(), "1.20.5".to_string());
-    registry.add_entry("minecraft:diamond_sword".to_string());
-    registry.add_entry("minecraft:iron_sword".to_string());
+    let registry = Registry::new("item".to_string(), "1.20".to_string());
+    assert_eq!(registry.name, "item");
+    assert_eq!(registry.version, "1.20");
+    assert!(registry.entries.is_empty());
+}
+
+#[test]
+fn test_registry_add_entries() {
+    let mut registry = Registry::new("item".to_string(), "1.20".to_string());
+    registry.entries.insert("minecraft:diamond".to_string());
+    registry.entries.insert("minecraft:stick".to_string());
     
-    assert!(registry.contains("minecraft:diamond_sword"));
-    assert!(registry.contains("minecraft:iron_sword"));
+    assert!(registry.contains("minecraft:diamond"));
+    assert!(registry.contains("minecraft:stick"));
     assert!(!registry.contains("minecraft:nonexistent"));
 }
 
 #[test]
-fn test_registry_tags() {
-    let mut registry = Registry::new("item".to_string(), "1.20.5".to_string());
-    registry.add_tag("minecraft:swords".to_string(), vec![
-        "minecraft:diamond_sword".to_string(),
-        "minecraft:iron_sword".to_string(),
-    ]);
+fn test_registry_from_json() {
+    let json = json!({
+        "entries": {
+            "minecraft:diamond": {},
+            "minecraft:stick": {},
+            "minecraft:stone": {}
+        },
+        "tags": {
+            "minecraft:gems": ["minecraft:diamond"],
+            "minecraft:tools": ["minecraft:stick"]
+        }
+    });
     
-    assert!(registry.contains_tag("minecraft:swords"));
-    assert!(!registry.contains_tag("minecraft:nonexistent"));
+    let registry = Registry::from_json("item".to_string(), "1.20".to_string(), &json);
+    assert!(registry.is_ok());
     
-    let entries = registry.get_tag_entries("minecraft:swords").unwrap();
-    assert_eq!(entries.len(), 2);
+    let registry = registry.unwrap();
+    assert!(registry.contains("minecraft:diamond"));
+    assert!(registry.contains_tag("minecraft:gems"));
 }
 
 #[test]
-fn test_manager_validation() {
+fn test_registry_manager() {
     let mut manager = RegistryManager::new();
-    let mut registry = Registry::new("item".to_string(), "1.20.5".to_string());
     
-    registry.add_entry("minecraft:diamond_sword".to_string());
-    registry.add_tag("minecraft:swords".to_string(), vec!["minecraft:diamond_sword".to_string()]);
+    // Test basic functionality without removed methods
+    assert!(!manager.has_registry("item"));
     
-    manager.add_registry(registry);
+    // Test registry loading
+    let json = json!({
+        "entries": {
+            "minecraft:diamond_sword": {},
+            "minecraft:iron_sword": {}
+        }
+    });
     
-    // Test valid resource location
+    assert!(manager.load_registry_from_json("item".to_string(), "1.20".to_string(), &json).is_ok());
+    assert!(manager.has_registry("item"));
+}
+
+#[test]
+fn test_scan_required_registries() {
+    let manager = RegistryManager::new();
+    
+    let json = json!({
+        "result": "minecraft:diamond_sword",
+        "ingredients": ["minecraft:diamond", "minecraft:stick"]
+    });
+    
+    let dependencies = manager.scan_required_registries(&json);
+    assert!(!dependencies.is_empty());
+    
+    // Should detect minecraft: patterns
+    let has_minecraft_refs = dependencies.iter().any(|dep| dep.identifier.starts_with("minecraft:"));
+    assert!(has_minecraft_refs);
+}
+
+#[test]
+fn test_validate_resource_location() {
+    let mut manager = RegistryManager::new();
+    
+    // Load a test registry
+    let json = json!({
+        "entries": {
+            "minecraft:diamond_sword": {},
+            "minecraft:iron_sword": {}
+        },
+        "tags": {
+            "minecraft:swords": ["minecraft:diamond_sword", "minecraft:iron_sword"]
+        }
+    });
+    
+    manager.load_registry_from_json("item".to_string(), "1.20".to_string(), &json).unwrap();
+    
+    // Test valid resource
     assert!(manager.validate_resource_location("item", "minecraft:diamond_sword", false).unwrap());
+    
+    // Test invalid resource
+    assert!(!manager.validate_resource_location("item", "minecraft:nonexistent", false).unwrap());
     
     // Test valid tag
     assert!(manager.validate_resource_location("item", "minecraft:swords", true).unwrap());
-    
-    // Test invalid resource location
-    assert!(!manager.validate_resource_location("item", "minecraft:nonexistent", false).unwrap());
-}
-
-#[test]
-fn test_resource_location_detection() {
-    let manager = RegistryManager::new();
-    
-    assert!(manager.looks_like_resource_location("minecraft:diamond_sword"));
-    assert!(manager.looks_like_resource_location("#minecraft:swords"));
-    assert!(!manager.looks_like_resource_location("not_a_resource"));
-    assert!(!manager.looks_like_resource_location("no-colon"));
-}
-
-#[test]
-fn test_json_path_extraction() {
-    let manager = RegistryManager::new();
-    let json = serde_json::json!({
-        "result": {
-            "item": "minecraft:diamond_sword"
-        },
-        "ingredients": [
-            "minecraft:diamond",
-            "minecraft:stick"
-        ]
-    });
-    
-    assert_eq!(manager.get_json_value_at_path(&json, "result.item"), Some("minecraft:diamond_sword"));
-    assert_eq!(manager.get_json_value_at_path(&json, "ingredients[0]"), Some("minecraft:diamond"));
-    assert_eq!(manager.get_json_value_at_path(&json, "ingredients[1]"), Some("minecraft:stick"));
-    assert_eq!(manager.get_json_value_at_path(&json, "nonexistent"), None);
 }
 
 #[test]
 fn test_load_minecraft_data() {
     let mut manager = RegistryManager::new();
     
-    // Load test data if available
-    if let Ok(()) = manager.load_test_data("examples/data.min.json") {
-        // Verify some critical registries are loaded
-        assert!(manager.has_registry("item"));
-        assert!(manager.has_registry("block"));
-        assert!(manager.has_registry("entity_type"));
-        assert!(manager.has_registry("enchantment"));
-        
-        // Test some known items exist
-        assert!(manager.validate_resource_location("item", "minecraft:diamond_sword", false).unwrap_or(false));
-        assert!(manager.validate_resource_location("item", "minecraft:diamond", false).unwrap_or(false));
-        assert!(manager.validate_resource_location("block", "minecraft:stone", false).unwrap_or(false));
-        
-        // Test invalid items don't exist
-        assert!(!manager.validate_resource_location("item", "minecraft:nonexistent_item", false).unwrap_or(true));
-        
-        println!("✅ Minecraft data loading test passed");
-    } else {
-        println!("⚠️ Test data not available, skipping minecraft data test");
-    }
-}
-
-#[test]
-fn test_data_json_structure() {
-    let sample_data = serde_json::json!({
-        "item": ["minecraft:diamond_sword", "minecraft:diamond", "minecraft:stick"],
-        "block": ["minecraft:stone", "minecraft:dirt", "minecraft:grass_block"],
-        "enchantment": ["minecraft:sharpness", "minecraft:protection"]
+    // Test simplified minecraft data loading
+    let test_data = json!({
+        "item": {
+            "entries": {
+                "minecraft:diamond_sword": {},
+                "minecraft:stick": {}
+            }
+        },
+        "block": {
+            "entries": {
+                "minecraft:stone": {},
+                "minecraft:dirt": {}
+            }
+        }
     });
     
-    let mut manager = RegistryManager::new();
-    manager.load_minecraft_data(&sample_data, "test").unwrap();
-    
+    // load_minecraft_data supprimé - charger chaque registre individuellement
+    assert!(manager.load_registry_from_json("item".to_string(), "1.20".to_string(), test_data.get("item").unwrap()).is_ok());
+    assert!(manager.load_registry_from_json("block".to_string(), "1.20".to_string(), test_data.get("block").unwrap()).is_ok());
     assert!(manager.has_registry("item"));
     assert!(manager.has_registry("block"));
-    assert!(manager.has_registry("enchantment"));
-    
-    assert!(manager.validate_resource_location("item", "minecraft:diamond_sword", false).unwrap());
-    assert!(manager.validate_resource_location("block", "minecraft:stone", false).unwrap());
-    assert!(manager.validate_resource_location("enchantment", "minecraft:sharpness", false).unwrap());
-    
-    assert!(!manager.validate_resource_location("item", "minecraft:nonexistent", false).unwrap());
 } 
