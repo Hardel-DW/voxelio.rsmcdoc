@@ -5,10 +5,10 @@ use crate::error::{ParseError, SourcePos};
 use rustc_hash::FxHashMap;
 
 // ================================
-// AST STRUCTURES ESSENTIELLES
+// AST ESSENTIAL STRUCTURES
 // ================================
 
-/// Fichier MCDOC principal
+/// Main MCDOC file
 #[derive(Debug, Clone, PartialEq)]
 pub struct McDocFile<'input> {
     pub imports: Vec<ImportStatement<'input>>,
@@ -29,7 +29,7 @@ pub enum ImportPath<'input> {
     Relative(Vec<&'input str>),
 }
 
-/// Déclarations top-level
+/// Top-level declarations
 #[derive(Debug, Clone, PartialEq)]
 pub enum Declaration<'input> {
     Struct(StructDeclaration<'input>),
@@ -38,7 +38,7 @@ pub enum Declaration<'input> {
     Dispatch(DispatchDeclaration<'input>),
 }
 
-/// Annotation consolidée
+/// Consolidated annotation
 #[derive(Debug, Clone, PartialEq)]
 pub struct Annotation<'input> {
     pub name: &'input str,
@@ -185,7 +185,7 @@ pub enum LiteralValue<'input> {
 // PARSER IMPLEMENTATION
 // ================================
 
-/// Parser principal unifié
+/// Main unified parser
 pub struct Parser<'input> {
     tokens: Vec<TokenWithPos<'input>>,
     current: usize,
@@ -201,7 +201,7 @@ impl<'input> Parser<'input> {
         }
     }
 
-    /// Parse complet du fichier MCDOC
+    /// Full parse of the MCDOC file
     pub fn parse(&mut self) -> Result<McDocFile<'input>, Vec<ParseError>> {
         let mut imports = Vec::new();
         let mut declarations = Vec::new();

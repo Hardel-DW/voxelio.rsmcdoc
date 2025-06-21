@@ -43,17 +43,30 @@ impl McDocValidator {
         })
     }
 
-    /// Load MCDOC files (SEULE MÉTHODE 1) - Fixed lifetime issues
+    /// Load MCDOC files (METHOD 1) - Real parsing implemented
     #[wasm_bindgen]
     pub fn load_mcdoc_files(&mut self, files: JsValue) -> Result<(), JsValue> {
-        let _files_map: HashMap<String, String> = serde_wasm_bindgen::from_value(files)
+        let files_map: HashMap<String, String> = serde_wasm_bindgen::from_value(files)
             .map_err(|e| to_js_error("Invalid files format", e))?;
         
-        // Simplified: Just validate format for now (parsing done client-side per spec)
+        // Parse and load each MCDOC file
+        for (filename, content) in files_map {
+            // Use the crate's parse_mcdoc function
+            let ast = crate::parse_mcdoc(&content)
+                .map_err(|errors| to_js_error("MCDOC parsing failed", format!("Errors: {:?}", errors)))?;
+            
+            // Store the parsed AST in the validator
+            // Note: For now, we are using a static lifetime
+            // TODO: Handle lifetimes properly if necessary
+            let static_ast = unsafe { std::mem::transmute(ast) };
+            self.inner.load_parsed_mcdoc(filename, static_ast)
+                .map_err(|e| to_js_error("Failed to load parsed MCDOC", e))?;
+        }
+        
         Ok(())
     }
 
-    /// Load registries data (SEULE MÉTHODE 2)
+    /// Load registries data (METHOD 2)
     #[wasm_bindgen]
     pub fn load_registries(&mut self, registries: JsValue, version: &str) -> Result<(), JsValue> {
         let registries_map: HashMap<String, serde_json::Value> = serde_wasm_bindgen::from_value(registries)
@@ -67,7 +80,7 @@ impl McDocValidator {
         Ok(())
     }
 
-    /// Validate JSON against MCDOC schemas (SEULE MÉTHODE 3)
+    /// Validate JSON against MCDOC schemas (METHOD 3)
     #[wasm_bindgen]
     pub fn validate_json(&self, json: JsValue, resource_type: &str) -> Result<JsValue, JsValue> {
         let json_value: serde_json::Value = serde_wasm_bindgen::from_value(json)
@@ -80,7 +93,7 @@ impl McDocValidator {
             .map_err(|e| to_js_error("Serialization error", e))
     }
 
-    /// Analyze complete datapack (SEULE MÉTHODE 4) - Fixed Option<JsValue> issues
+    /// Analyze complete datapack (METHOD 4) - Fixed Option<JsValue> issues
     #[wasm_bindgen]
     pub async fn analyze_datapack(&self, files: JsValue, resource_type_map: JsValue, default_resource_type: Option<String>) -> Result<JsValue, JsValue> {
         let files_map: HashMap<String, Vec<u8>> = serde_wasm_bindgen::from_value(files)

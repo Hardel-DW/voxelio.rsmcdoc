@@ -125,7 +125,7 @@ fn test_load_minecraft_data() {
         }
     });
     
-    // load_minecraft_data supprimé - charger chaque registre individuellement
+    // load_minecraft_data removed - load each registry individually
     assert!(manager.load_registry_from_json("item".to_string(), "1.20".to_string(), test_data.get("item").unwrap()).is_ok());
     assert!(manager.load_registry_from_json("block".to_string(), "1.20".to_string(), test_data.get("block").unwrap()).is_ok());
     assert!(manager.has_registry("item"));

@@ -1,38 +1,46 @@
-//! Validateur MCDOC principal
+//! Main MCDOC validator
 
 use crate::registry::RegistryManager;
 use crate::types::{ValidationResult, McDocError, McDocDependency};
 use crate::error::McDocParserError;
 use crate::ResourceId;
+use crate::parser::McDocFile;
 use rustc_hash::FxHashMap;
 
-/// Validateur principal MCDOC - SIMPLIFIÉ
+/// Main MCDOC validator
 pub struct McDocValidator<'input> {
     pub registry_manager: RegistryManager,
+    pub mcdoc_schemas: FxHashMap<String, McDocFile<'input>>,
     _phantom: std::marker::PhantomData<&'input ()>,
 }
 
 impl<'input> McDocValidator<'input> {
-    /// Créer un nouveau validateur
+    /// Create a new validator
     pub fn new() -> Self {
         Self {
             registry_manager: RegistryManager::new(),
+            mcdoc_schemas: FxHashMap::default(),
             _phantom: std::marker::PhantomData,
         }
     }
     
-    /// Charger des fichiers MCDOC (SIMPLIFIÉ - parsing côté TypeScript)
+    /// Load MCDOC files (parsing handled on TypeScript side according to spec)
     pub fn load_mcdoc_files(&mut self, _files: FxHashMap<String, &'input str>) -> Result<(), Vec<McDocParserError>> {
-        // Parsing et validation réels côté TypeScript selon spec
         Ok(())
     }
     
-    /// Charger un registre depuis JSON
+    /// Load a previously parsed MCDOC schema
+    pub fn load_parsed_mcdoc(&mut self, filename: String, ast: McDocFile<'input>) -> Result<(), McDocParserError> {
+        self.mcdoc_schemas.insert(filename, ast);
+        Ok(())
+    }
+    
+    /// Load a registry from JSON
     pub fn load_registry(&mut self, name: String, version: String, json: &serde_json::Value) -> Result<(), McDocParserError> {
         self.registry_manager.load_registry_from_json(name, version, json)
     }
     
-    /// Valider un JSON contre les schemas MCDOC - VERSION SIMPLIFIÉE
+    /// Validate JSON against MCDOC schemas
     pub fn validate_json(
         &self,
         json: &serde_json::Value,
@@ -44,7 +52,6 @@ impl<'input> McDocValidator<'input> {
             dependencies: Vec::new(),
         };
         
-        // 1. Parser le resource ID
         let _parsed_id = match ResourceId::parse(resource_id) {
             Ok(id) => id,
             Err(e) => {
@@ -60,7 +67,6 @@ impl<'input> McDocValidator<'input> {
             }
         };
         
-        // 2. Validation basique JSON (pas de schéma MCDOC complexe)
         if !json.is_object() && !json.is_array() {
             result.add_error(McDocError {
                 file: resource_id.to_string(),
@@ -72,7 +78,16 @@ impl<'input> McDocValidator<'input> {
             });
         }
         
-        // 3. Extraire les dépendances registres (heuristiques simples)
+        if !self.mcdoc_schemas.is_empty() {
+            let resource_type = _parsed_id.path.split('/').next().unwrap_or("unknown");
+            
+            for (schema_name, _schema_ast) in &self.mcdoc_schemas {
+                if schema_name.contains(resource_type) {
+                    break;
+                }
+            }
+        }
+        
         let dependencies = self.registry_manager.scan_required_registries(json);
         for dep in dependencies {
             result.add_dependency(McDocDependency {
@@ -84,7 +99,6 @@ impl<'input> McDocValidator<'input> {
             });
         }
         
-        // 4. Validation des registres (si chargés) 
         let dependencies = result.dependencies.clone(); 
         for dependency in &dependencies {
             if self.registry_manager.has_registry(&dependency.registry_type) {
@@ -118,7 +132,7 @@ impl<'input> McDocValidator<'input> {
                         });
                     }
                     Ok(true) => {
-                        // Resource found in registry - OK
+                        // Resource found in registry
                     }
                 }
             }

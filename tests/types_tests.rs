@@ -10,7 +10,7 @@ fn test_validation_result_creation() {
 
 #[test]
 fn test_minecraft_version_simple() {
-    // MinecraftVersion est maintenant un type alias String
+    // MinecraftVersion is now a String type alias
     let version: MinecraftVersion = "1.20.5".to_string();
     assert_eq!(version, "1.20.5");
     
@@ -20,7 +20,7 @@ fn test_minecraft_version_simple() {
 
 #[test]
 fn test_version_comparison_simple() {
-    // Comparaison simple de versions String
+    // Simple string comparison of versions
     let v1_20: MinecraftVersion = "1.20".to_string();
     let v1_20_5: MinecraftVersion = "1.20.5".to_string();
     let v1_21: MinecraftVersion = "1.21".to_string();

@@ -1,9 +1,9 @@
-//! Système d'erreurs MCDOC
+//! MCDOC error system
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Position dans le source code
+/// Position in the source code
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourcePos {
     pub line: u32,
@@ -16,63 +16,53 @@ impl SourcePos {
     }
 }
 
-/// Erreur principale du parser MCDOC - Version consolidée
+/// Main MCDOC parser error
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
-    /// Erreurs lexicales
     Lexer { 
         message: String, 
         pos: SourcePos,
     },
     
-    /// Erreurs de parsing
     Syntax { 
         expected: String, 
         found: String, 
         pos: SourcePos,
     },
     
-    /// Erreurs de résolution de modules
     Resolution { 
         message: String,
         path: Option<String>,
     },
     
-    /// Erreurs de validation
     Validation { 
         message: String,
         path: String,
         pos: Option<SourcePos>,
     },
     
-    /// Erreurs generiques avec context
     Context {
         message: String,
         context: String,
         pos: Option<SourcePos>,
     },
     
-    /// Erreur d'ID de ressource invalide
     InvalidResourceId(String),
     
-    /// Module not found
     ModuleNotFound {
         module: String,
         from: String,
     },
     
-    /// Circular dependency
     CircularDependency {
         cycle: Vec<String>,
     },
-    
-
 }
 
-/// Alias pour compatibilité avec validator.rs et resolver.rs
+/// Alias for compatibility with validator.rs and resolver.rs
 pub type McDocParserError = ParseError;
 
-/// Types d'erreurs pour catégorisation
+/// Error types for categorization
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ErrorType {
@@ -122,7 +112,6 @@ impl fmt::Display for ParseError {
             ParseError::CircularDependency { cycle } => {
                 write!(f, "Circular dependency detected: {:?}", cycle)
             }
-
         }
     }
 }
@@ -130,7 +119,7 @@ impl fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 impl ParseError {
-    /// Factory methods pour création rapide d'erreurs
+    /// Factory methods for quick error creation
     pub fn lexer(message: impl Into<String>, pos: SourcePos) -> Self {
         Self::Lexer { message: message.into(), pos }
     }
@@ -163,7 +152,7 @@ impl ParseError {
         }
     }
     
-    /// Obtenir le type d'erreur
+    /// Get the error type
     pub fn error_type(&self) -> ErrorType {
         match self {
             ParseError::Lexer { .. } => ErrorType::Lexer,
@@ -177,18 +166,17 @@ impl ParseError {
         }
     }
     
-    /// Obtenir la position si disponible
+    /// Get the position if available
     pub fn position(&self) -> Option<SourcePos> {
         match self {
             ParseError::Lexer { pos, .. } |
             ParseError::Syntax { pos, .. } => Some(*pos),
             ParseError::Validation { pos, .. } |
             ParseError::Context { pos, .. } => *pos,
-                        ParseError::Resolution { .. } |
+            ParseError::Resolution { .. } |
             ParseError::InvalidResourceId(_) |
             ParseError::ModuleNotFound { .. } |
             ParseError::CircularDependency { .. } => None,
-            
         }
     }
 } 

@@ -319,7 +319,7 @@ fn test_working_integration_pipeline() {
 fn test_basic_integration() {
     let mut validator = McDocValidator::new();
     
-    // Test basic MCDOC loading (simplifié)
+    // Test basic MCDOC loading (simplified)
     let mut files = rustc_hash::FxHashMap::default();
     files.insert("test.mcdoc".to_string(), "struct Test {}");
     
@@ -400,7 +400,7 @@ fn test_datapack_resource_extraction() {
     ];
     
     for path in paths {
-        // extract_resource_id_from_path supprimé - test basique
+        // extract_resource_id_from_path removed - basic test
         let resource_id = format!("test_resource_{}", path.len());
         assert!(!resource_id.is_empty());
         println!("Path: {} -> Resource ID: {}", path, resource_id);
@@ -437,7 +437,7 @@ fn test_complex_json_scanning() {
         ]
     });
     
-    // get_required_registries supprimé - utiliser validate_json pour obtenir les dépendances
+    // get_required_registries removed - use validate_json to get dependencies
     let result = validator.validate_json(&complex_json, "test_loot_table");
     let dependencies = &result.dependencies;
     
@@ -490,7 +490,7 @@ fn test_multiple_registries() {
         })),
     ];
     
-    // load_registries supprimé - charger individuellement
+    // load_registries removed - load individually
     for (name, version, json) in registries {
         assert!(validator.load_registry(name, version, &json).is_ok());
     }
@@ -518,7 +518,7 @@ fn test_dependency_scanning_accuracy() {
         }
     });
     
-    // get_required_registries supprimé - utiliser validate_json
+    // get_required_registries removed - use validate_json
     let result = validator.validate_json(&test_json, "test_recipe");
     let dependencies = &result.dependencies;
     

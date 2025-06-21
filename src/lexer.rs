@@ -1,67 +1,54 @@
-//! Lexer MCDOC avec zero-copy parsing
+//! MCDOC Lexer with zero-copy parsing
 
 use crate::error::ParseError;
 use serde::{Deserialize, Serialize};
 
-/// Token MCDOC avec référence zero-copy au source
+/// MCDOC Token with zero-copy reference to the source
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token<'input> {
-    // Identifiers et littéraux
     Identifier(&'input str),
-    String(&'input str),           // "hello"
-    Number(f64),                   // 123, 123.456
-    True,                         // true
-    False,                        // false
-    
-    // Mots-clés
-    Use,                          // use
-    Struct,                       // struct  
-    Enum,                         // enum
-    Type,                         // type
-    Dispatch,                     // dispatch
-    To,                           // to
-    Super,                        // super
-    
-    // Symboles
-    LeftParen,                    // (
-    RightParen,                   // )
-    LeftBrace,                    // {
-    RightBrace,                   // }
-    LeftBracket,                  // [
-    RightBracket,                 // ]
-    
-    // Operators
-    Colon,                        // :
-    DoubleColon,                  // ::
-    Semicolon,                    // ;
-    Comma,                        // ,
-    Question,                     // ?
-    Pipe,                         // |
-    At,                           // @
-    Hash,                         // #
-    Dot,                          // .
-    DotDotDot,                    // ...
-    DotDot,                       // ..
-    Percent,                      // %
-    Equal,                        // = 
-    Equals,                       // = (compatibility alias)
-    Less,                         // <
-    Greater,                      // >
-    
-    // Annotations
-    Annotation(&'input str),       // #[id="item"]
-    
-    // Comments (à ignorer généralement)
-    LineComment(&'input str),      // //
-    BlockComment(&'input str),     // /* */
-    
-    // Special
+    String(&'input str),
+    Number(f64),
+    True,
+    False,
+    Use,
+    Struct,
+    Enum,
+    Type,
+    Dispatch,
+    To,
+    Super,
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    LeftBracket,
+    RightBracket,
+    Colon,
+    DoubleColon,
+    Semicolon,
+    Comma,
+    Question,
+    Pipe,
+    At,
+    Hash,
+    Dot,
+    DotDotDot,
+    DotDot,
+    Percent,
+    Equal,
+    Equals,
+    Less,
+    Greater,
+    Annotation(&'input str),
+    LineComment(&'input str),
+    BlockComment(&'input str),
     Eof,
     Newline,
-    Whitespace,                   // spaces, tabs
+    Whitespace,
 }
 
-/// Position dans le fichier source
+/// Position in the source file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Position {
     pub line: u32,
@@ -69,14 +56,14 @@ pub struct Position {
     pub offset: usize,
 }
 
-/// Token avec position dans le source
+/// Token with position in the source
 #[derive(Debug, Clone, PartialEq)]
 pub struct TokenWithPos<'input> {
     pub token: Token<'input>,
     pub position: Position,
 }
 
-/// Lexer MCDOC avec zero-copy
+/// MCDOC Lexer with zero-copy
 pub struct Lexer<'input> {
     input: &'input str,
     chars: std::str::Chars<'input>,
@@ -86,7 +73,7 @@ pub struct Lexer<'input> {
 }
 
 impl<'input> Lexer<'input> {
-    /// Créer un nouveau lexer
+    /// Create a new lexer
     pub fn new(input: &'input str) -> Self {
         let mut chars = input.chars();
         let current_char = chars.next();
@@ -101,7 +88,7 @@ impl<'input> Lexer<'input> {
         }
     }
     
-    /// Avancer d'un caractère
+    /// Advance one character
     fn advance(&mut self) {
         if let Some(ch) = self.current_char {
             self.current_pos.offset += ch.len_utf8();
@@ -118,31 +105,27 @@ impl<'input> Lexer<'input> {
         self.peek_char = self.chars.next();
     }
     
-    /// Regarder le caractère suivant sans avancer
+    /// Peek at the next character without advancing
     fn peek(&self) -> Option<char> {
         self.peek_char
     }
     
-    /// Ignorer les espaces et les commentaires
+    /// Skip whitespace and comments
     fn skip_whitespace_and_comments(&mut self) -> Result<(), ParseError> {
         while let Some(ch) = self.current_char {
             match ch {
                 ' ' | '\t' | '\r' => self.advance(),
                 '\n' => {
-                    // Don't skip newlines - they're significant tokens
                     break;
                 }
                 '/' if self.peek() == Some('/') => {
-                    // Skip line comment
                     while self.current_char.is_some() && self.current_char != Some('\n') {
                         self.advance();
                     }
-                    // Don't skip the newline - it will be handled as a token
                 }
                 '/' if self.peek() == Some('*') => {
-                    // Skip block comment
-                    self.advance(); // Skip '/'
-                    self.advance(); // Skip '*'
+                    self.advance();
+                    self.advance();
                     
                     let mut depth = 1;
                     while depth > 0 && self.current_char.is_some() {
@@ -172,7 +155,7 @@ impl<'input> Lexer<'input> {
         Ok(())
     }
     
-    /// Lire un identifiant ou mot-clé
+    /// Read an identifier or keyword
     fn read_identifier(&mut self) -> &'input str {
         let start_offset = self.current_pos.offset;
         
@@ -187,12 +170,11 @@ impl<'input> Lexer<'input> {
         &self.input[start_offset..self.current_pos.offset]
     }
     
-    /// Lire un nombre
+    /// Read a number
     fn read_number(&mut self) -> Result<f64, ParseError> {
         let _start_pos = self.current_pos;
         let start_offset = self.current_pos.offset;
         
-        // Lire la partie entière
         while let Some(ch) = self.current_char {
             if ch.is_ascii_digit() {
                 self.advance();
@@ -201,9 +183,8 @@ impl<'input> Lexer<'input> {
             }
         }
         
-        // Lire la partie décimale si présente
         if self.current_char == Some('.') && self.peek().map_or(false, |c| c.is_ascii_digit()) {
-            self.advance(); // Skip '.'
+            self.advance();
             while let Some(ch) = self.current_char {
                 if ch.is_ascii_digit() {
                     self.advance();
@@ -214,87 +195,77 @@ impl<'input> Lexer<'input> {
         }
         
         let number_str = &self.input[start_offset..self.current_pos.offset];
-        number_str.parse().map_err(|_| ParseError::lexer(
-            format!("Invalid number '{}'", number_str),
-            crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
-        ))
+        number_str.parse().map_err(|_| {
+            ParseError::lexer(
+                format!("Invalid number format: {}", number_str),
+                crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+            )
+        })
     }
     
-    /// Lire une chaîne de caractères
+    /// Read a string literal
     fn read_string(&mut self) -> Result<&'input str, ParseError> {
-        let _start_pos = self.current_pos;
-        self.advance(); // Skip opening quote
+        let quote_char = self.current_char.unwrap();
+        self.advance();
         
-        let content_start = self.current_pos.offset;
+        let start_offset = self.current_pos.offset;
         
         while let Some(ch) = self.current_char {
-            match ch {
-                '"' => {
-                    let content = &self.input[content_start..self.current_pos.offset];
-                    self.advance(); // Skip closing quote
-                    return Ok(content);
+            if ch == quote_char {
+                let string_content = &self.input[start_offset..self.current_pos.offset];
+                self.advance();
+                return Ok(string_content);
+            } else if ch == '\\' {
+                self.advance();
+                if self.current_char.is_some() {
+                    self.advance();
                 }
-                '\\' => {
-                    self.advance(); // Skip backslash
-                    if self.current_char.is_some() {
-                        self.advance(); // Skip escaped character
-                    }
-                }
-                '\n' => {
-                    return Err(ParseError::lexer(
-                        "Unterminated string",
-                        crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
-                    ));
-                }
-                _ => self.advance(),
+            } else {
+                self.advance();
             }
         }
         
         Err(ParseError::lexer(
-            "Unterminated string",
+            "Unterminated string literal",
             crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
         ))
     }
     
-    /// Lire une annotation complète #[...]
+    /// Read a complete annotation #[...]
     fn read_annotation(&mut self) -> Result<&'input str, ParseError> {
-        let start_offset = self.current_pos.offset;
-        let _start_pos = self.current_pos;
-        
-        self.advance(); // Skip '#'
+        self.advance();
         
         if self.current_char != Some('[') {
             return Err(ParseError::lexer(
-                "Invalid annotation format",
+                "Expected '[' after '#' in annotation",
                 crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
             ));
         }
         
-        let mut depth = 0;
-        while let Some(ch) = self.current_char {
-            match ch {
-                '[' => {
-                    depth += 1;
-                    self.advance();
-                }
-                ']' => {
-                    self.advance();
-                    depth -= 1;
-                    if depth == 0 {
-                        return Ok(&self.input[start_offset..self.current_pos.offset]);
-                    }
-                }
-                _ => self.advance(),
+        let start_offset = self.current_pos.offset;
+        self.advance();
+        
+        let mut bracket_depth = 1;
+        while bracket_depth > 0 && self.current_char.is_some() {
+            match self.current_char {
+                Some('[') => bracket_depth += 1,
+                Some(']') => bracket_depth -= 1,
+                _ => {}
             }
+            self.advance();
         }
         
-        Err(ParseError::lexer(
-            "Invalid annotation format",
-            crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
-        ))
+        if bracket_depth > 0 {
+            return Err(ParseError::lexer(
+                "Unterminated annotation",
+                crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
+            ));
+        }
+        
+        Ok(&self.input[start_offset..self.current_pos.offset])
     }
     
-    /// Déterminer le type de token pour un identifiant
+    /// Determine the token type for an identifier
     fn identifier_to_token(ident: &str) -> Token {
         match ident {
             "use" => Token::Use,
@@ -310,85 +281,42 @@ impl<'input> Lexer<'input> {
         }
     }
     
-    /// Obtenir le prochain token
+    /// Get the next token
     pub fn next_token(&mut self) -> Result<TokenWithPos<'input>, ParseError> {
         self.skip_whitespace_and_comments()?;
         
         let pos = self.current_pos;
-            
-            let token = match self.current_char {
-                None => Token::Eof,
-                Some('\n') => {
+        
+        let token = match self.current_char {
+            None => Token::Eof,
+            Some('\n') => { self.advance(); Token::Newline }
+            Some('(') => { self.advance(); Token::LeftParen }
+            Some(')') => { self.advance(); Token::RightParen }
+            Some('{') => { self.advance(); Token::LeftBrace }
+            Some('}') => { self.advance(); Token::RightBrace }
+            Some('[') => { self.advance(); Token::LeftBracket }
+            Some(']') => { self.advance(); Token::RightBracket }
+            Some(',') => { self.advance(); Token::Comma }
+            Some(';') => { self.advance(); Token::Semicolon }
+            Some('?') => { self.advance(); Token::Question }
+            Some('|') => { self.advance(); Token::Pipe }
+            Some('@') => { self.advance(); Token::At }
+            Some('%') => { self.advance(); Token::Percent }
+            Some('=') => { self.advance(); Token::Equal }
+            Some('<') => { self.advance(); Token::Less }
+            Some('>') => { self.advance(); Token::Greater }
+            Some(':') => {
+                self.advance();
+                if self.current_char == Some(':') {
                     self.advance();
-                    Token::Newline
-                }
-                Some('(') => {
-                    self.advance();
-                    Token::LeftParen
-                }
-                Some(')') => {
-                    self.advance();
-                    Token::RightParen
-                }
-                Some('{') => {
-                    self.advance();
-                    Token::LeftBrace
-                }
-                Some('}') => {
-                    self.advance();
-                    Token::RightBrace
-                }
-                Some('[') => {
-                    self.advance();
-                    Token::LeftBracket
-                }
-                Some(']') => {
-                    self.advance();
-                    Token::RightBracket
-                }
-                Some(':') if self.peek() == Some(':') => {
-                    self.advance();
-                    self.advance();
-                    Token::DoubleColon
-                }
-                Some(':') => {
-                    self.advance();
+                    Token::DoubleColon  
+                } else {
                     Token::Colon
                 }
-                Some(';') => {
-                    self.advance();
-                    Token::Semicolon
-                }
-                Some(',') => {
-                    self.advance();
-                    Token::Comma
-                }
-                Some('?') => {
-                    self.advance();
-                    Token::Question
-                }
-                Some('|') => {
-                    self.advance();
-                    Token::Pipe
-                }
-                Some('@') => {
-                    self.advance();
-                    Token::At
-                }
-                Some('%') => {
-                    self.advance();
-                    Token::Percent
-                }
-                Some('=') => {
-                    self.advance();
-                    Token::Equal
-                }
-                Some('#') => {
-                    let annotation = self.read_annotation()?;
-                    Token::Annotation(annotation)
-                }
-                Some('.') if self.peek() == Some('.') => {
-                    self.advance();
+            }
+            Some('.') => {
+                self.advance();
+                if self.current_char == Some('.') {
                     self.advance();
                     if self.current_char == Some('.') {
                         self.advance();
@@ -396,43 +324,35 @@ impl<'input> Lexer<'input> {
                     } else {
                         Token::DotDot
                     }
-                }
-                Some('.') => {
-                    self.advance();
+                } else {
                     Token::Dot
                 }
-                Some('"') => {
-                    let content = self.read_string()?;
-                    Token::String(content)
-                }
-                Some(ch) if ch.is_ascii_digit() => {
-                    let number = self.read_number()?;
-                    Token::Number(number)
-                }
-                Some('<') => {
-                    self.advance();
-                    Token::Less
-                }
-                Some('>') => {
-                    self.advance();
-                    Token::Greater
-                }
-                Some(ch) if ch.is_alphabetic() || ch == '_' => {
-                    let ident = self.read_identifier();
-                    Self::identifier_to_token(ident)
-                }
-                Some(ch) => {
-                    return Err(ParseError::lexer(
-                        format!("Unexpected character '{}'", ch),
-                        crate::error::SourcePos::new(self.current_pos.line, self.current_pos.column)
-                    ));
-                }
-            };
-            
-            Ok(TokenWithPos { token, position: pos })
+            }
+            Some('#') => {
+                Token::Annotation(self.read_annotation()?)
+            }
+            Some('"') | Some('\'') => {
+                Token::String(self.read_string()?)
+            }
+            Some(ch) if ch.is_ascii_digit() => {
+                Token::Number(self.read_number()?)
+            }
+            Some(ch) if ch.is_alphabetic() || ch == '_' => {
+                let ident = self.read_identifier();
+                Self::identifier_to_token(ident)
+            }
+            Some(ch) => {
+                return Err(ParseError::lexer(
+                    format!("Unexpected character: '{}'", ch),
+                    crate::error::SourcePos::new(pos.line, pos.column)
+                ));
+            }
+        };
+        
+        Ok(TokenWithPos { token, position: pos })
     }
     
-    /// Tokeniser tout le fichier
+    /// Tokenize the entire file
     pub fn tokenize(&mut self) -> Result<Vec<TokenWithPos<'input>>, ParseError> {
         let mut tokens = Vec::new();
         

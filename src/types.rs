@@ -1,41 +1,41 @@
-//! Types publics pour l'API MCDOC
+//! Public types for the MCDOC API
 
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use crate::error::{ErrorType, ParseError};
 use serde::ser::SerializeMap;
 use serde::de::{Visitor, MapAccess};
 
-/// Dépendance registry extraite d'un JSON
+/// Registry dependency extracted from a JSON
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McDocDependency {
     /// Resource location (e.g., "minecraft:diamond_sword")
     pub resource_location: String,
-    /// Type de registry (e.g., "item", "block", "recipe")
+    /// Registry type (e.g., "item", "block", "recipe")
     pub registry_type: String,
-    /// Chemin dans le JSON source (e.g., "result", "ingredients[0]")
+    /// Path in the source JSON (e.g., "result", "ingredients[0]")
     pub source_path: String,
-    /// Fichier source optionnel pour datapack analysis
+    /// Optional source file for datapack analysis
     pub source_file: Option<String>,
-    /// Indique si c'est une référence tag (#minecraft:swords)
+    /// Indicates if it's a tag reference (#minecraft:swords)
     pub is_tag: bool,
 }
 
-/// Erreur de validation MCDOC
+/// MCDOC validation error
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McDocError {
-    /// Nom du fichier où l'erreur s'est produite
+    /// File name where the error occurred
     pub file: String,
-    /// Chemin dans la structure JSON
+    /// Path in the JSON structure
     pub path: String,
-    /// Message d'erreur détaillé
+    /// Detailed error message
     pub message: String,
-    /// Type d'erreur pour catégorisation
+    /// Error type for categorization
     pub error_type: ErrorType,
-    /// Ligne dans le fichier (si disponible)
+    /// Line in the file (if available)
     pub line: Option<u32>,
-    /// Colonne dans le fichier (si disponible)
+    /// Column in the file (if available)
     pub column: Option<u32>,
 }
 
@@ -56,20 +56,20 @@ impl From<ParseError> for McDocError {
     }
 }
 
-/// Résultat de validation d'un fichier JSON unique
+/// Validation result of a single JSON file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationResult {
-    /// Le JSON est-il valide selon le schema MCDOC ?
+    /// Is the JSON valid according to the MCDOC schema?
     pub is_valid: bool,
-    /// Erreurs de validation détaillées
+    /// Detailed validation errors
     pub errors: Vec<McDocError>,
-    /// Dépendances registries extraites
+    /// Extracted registry dependencies
     pub dependencies: Vec<McDocDependency>,
 }
 
 impl ValidationResult {
-    /// Créer un résultat de validation réussie
+    /// Create a successful validation result
     pub fn success(dependencies: Vec<McDocDependency>) -> Self {
         Self {
             is_valid: true,
@@ -78,7 +78,7 @@ impl ValidationResult {
         }
     }
     
-    /// Créer un résultat de validation échouée
+    /// Create a failed validation result
     pub fn failure(errors: Vec<McDocError>) -> Self {
         Self {
             is_valid: false,
@@ -87,47 +87,47 @@ impl ValidationResult {
         }
     }
     
-    /// Ajouter une erreur au résultat
+    /// Add an error to the result
     pub fn add_error(&mut self, error: McDocError) {
         self.errors.push(error);
         self.is_valid = false;
     }
     
-    /// Ajouter une dépendance au résultat
+    /// Add a dependency to the result
     pub fn add_dependency(&mut self, dependency: McDocDependency) {
         self.dependencies.push(dependency);
     }
 }
 
-/// Résultat d'analyse complète d'un datapack
+/// Full datapack analysis result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatapackResult {
-    /// Nombre total de fichiers analysés
+    /// Total number of files analyzed
     pub total_files: usize,
-    /// Nombre de fichiers valides
+    /// Number of valid files
     pub valid_files: usize,
-    /// Erreurs de validation par fichier
+    /// Validation errors per file
     pub errors: Vec<FileError>,
-    /// Toutes les dépendances groupées par registry  
+    /// All dependencies grouped by registry  
     #[serde(serialize_with = "serialize_fx_hashmap", deserialize_with = "deserialize_fx_hashmap")]
     pub dependencies: rustc_hash::FxHashMap<String, Vec<String>>,
-    /// Temps de traitement total en millisecondes
+    /// Total processing time in milliseconds
     pub analysis_time_ms: u32,
 }
 
-/// Erreur dans un fichier spécifique du datapack
+/// Error in a specific datapack file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileError {
-    /// Chemin du fichier
+    /// File path
     pub file_path: String,
-    /// Erreur de validation
+    /// Validation error
     pub error: McDocError,
 }
 
 impl DatapackResult {
-    /// Créer un nouveau résultat vide
+    /// Create a new empty result
     pub fn new() -> Self {
         Self {
             total_files: 0,
@@ -138,7 +138,7 @@ impl DatapackResult {
         }
     }
     
-    /// Ajouter les résultats d'un fichier
+    /// Add file results
     pub fn add_file_result(&mut self, file_path: String, result: ValidationResult) {
         self.total_files += 1;
         
@@ -146,7 +146,7 @@ impl DatapackResult {
             self.valid_files += 1;
         }
         
-        // Ajouter les erreurs
+        // Add errors
         for error in result.errors {
             self.errors.push(FileError {
                 file_path: file_path.clone(),
@@ -154,7 +154,7 @@ impl DatapackResult {
             });
         }
         
-        // Grouper les dépendances par registry
+        // Group dependencies by registry
         for dependency in result.dependencies {
             self.dependencies
                 .entry(dependency.registry_type)
@@ -163,14 +163,14 @@ impl DatapackResult {
         }
     }
     
-    /// Définir le temps d'analyse
+    /// Set analysis time
     pub fn set_analysis_time(&mut self, time_ms: u32) {
         self.analysis_time_ms = time_ms;
     }
 }
 
-/// Version Minecraft - VERSION SIMPLIFIÉE (type alias)
-/// La parsing complexe est gérée côté JavaScript selon spec
+/// Minecraft Version - SIMPLIFIED VERSION (type alias)
+/// Complex parsing is handled on the JavaScript side according to spec
 pub type MinecraftVersion = String;
 
 fn serialize_fx_hashmap<S>(

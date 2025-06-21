@@ -1,22 +1,20 @@
 # Voxel-RSMCDOC
 
-Parser MCDOC en Rust pour validation ultra-rapide de datapacks Minecraft avec
-intégration webapp via WASM.
+Rust MCDOC parser for ultra-fast Minecraft datapack validation with webapp
+integration via WASM.
 
-## 🎯 Qu'est-ce que MCDOC ?
+## 🎯 What is MCDOC?
 
-**MCDOC** est un DSL (Domain Specific Language) créé par la communauté Minecraft
-pour décrire précisément la structure des fichiers JSON de
-datapacks/resourcepacks. Il permet de :
+**MCDOC** is a DSL (Domain Specific Language) created by the Minecraft community
+to precisely describe the JSON structure of datapacks/resourcepacks. It allows
+to:
 
-- **Valider** : Vérifier que tous les JSON respectent les spécifications
-  Minecraft
-- **Détecter erreurs** : Types incorrects, contraintes violées, registres
-  invalides
-- **Extraire dépendances** : Resource Locations utilisées (items, blocks,
-  recipes, etc.)
+- **Validate** : Check that all JSONs comply with Minecraft specifications
+- **Detect errors** : Incorrect types, violated constraints, invalid registries
+- **Extract dependencies** : Used Resource Locations (items, blocks, recipes,
+  etc.)
 
-### Exemple MCDOC vs JSON
+### MCDOC vs JSON Example
 
 **MCDOC Schema:**
 
@@ -38,35 +36,35 @@ dispatch minecraft:resource[recipe] to struct Recipe {
 }
 ```
 
-**Validation:** ✅ Types corrects, `minecraft:diamond_sword` existe dans
-registry `item`.
+**Validation:** ✅ Correct types, `minecraft:diamond_sword` exists in registry
+`item`.
 
-## 🚀 Objectifs Performance
+## 🚀 Performance Objectives
 
-### Performances **RÉALISTES** visées
+### **REALISTIC** Performance Targets
 
-| Taille Datapack       | Parse MCDOC | Validation Complète | Total Pipeline |
-| --------------------- | ----------- | ------------------- | -------------- |
-| Small (100 fichiers)  | <2ms        | <10ms               | **<10ms**      |
-| Medium (500 fichiers) | <8ms        | <50ms               | **<50ms**      |
-| Large (1000 fichiers) | <15ms       | <100ms              | **<100ms**     |
+| Datapack Size      | Parse MCDOC | Complete Validation | Total Pipeline |
+| ------------------ | ----------- | ------------------- | -------------- |
+| Small (100 files)  | <2ms        | <10ms               | **<10ms**      |
+| Medium (500 files) | <8ms        | <50ms               | **<50ms**      |
+| Large (1000 files) | <15ms       | <100ms              | **<100ms**     |
 
-## 🔧 API TypeScript/WASM
+## 🔧 TypeScript/WASM API
 
 ```typescript
 export class McDocValidator {
-    // Setup : Charge MCDOC et résout imports
+    // Setup : Loads MCDOC and resolves imports
     static async init(
         mcdocFiles: Record<string, string>,
     ): Promise<McDocValidator>;
 
-    // Registry Discovery : Quels registres nécessaires (RAPIDE - cache)
+    // Registry Discovery : Which registries are needed (FAST - cache)
     getRequiredRegistries(json: object, resourceType: string): string[];
 
-    // Validation : Avec registres chargés
+    // Validation : With loaded registries
     validate(json: object, version?: string): ValidationResult;
 
-    // Analyse Datapack : Validation parallèle
+    // Datapack Analysis : Parallel validation
     async analyzeDatapack(
         files: Record<string, Uint8Array>,
         version?: string,
@@ -80,12 +78,12 @@ interface ValidationResult {
 }
 ```
 
-## 📊 Workflow en 3 étapes
+## 📊 3-Step Workflow
 
-### 1. **Registry Discovery** (Ultra-rapide)
+### 1. **Registry Discovery** (Ultra-fast)
 
 ```typescript
-// Analyse locale - pas de network calls
+// Local analysis - no network calls
 const requiredRegistries = validator.getRequiredRegistries(
     recipeJson,
     "recipe",
@@ -93,15 +91,15 @@ const requiredRegistries = validator.getRequiredRegistries(
 // Result: ["item", "recipe_serializer", "crafting_book_category"]
 ```
 
-### 2. **Validation** (Avec registres chargés)
+### 2. **Validation** (With loaded registries)
 
 ```typescript
-// Pour valider un seul fichier JSON. Juste besoin de fournir le JSON
+// To validate a single JSON file. Just need to provide the JSON
 const result = validator.validate(recipeJson);
 // Result: { isValid: true, errors: [], dependencies: [...] }
 ```
 
-### 3. **Analyse Datapack** (Validation parallèle)
+### 3. **Datapack Analysis** (Parallel validation)
 
 ```typescript
 const result = await validator.analyzeDatapack(files);
@@ -110,49 +108,49 @@ const result = await validator.analyzeDatapack(files);
 
 ## 📚 Documentation
 
-| Fichier                                                              | Contenu                                          |
-| -------------------------------------------------------------------- | ------------------------------------------------ |
-| [`docs/mcdoc-format.md`](docs/mcdoc-format.md)                       | Syntaxe MCDOC complète avec exemples             |
-| [`docs/developpement-plan.md`](docs/developpement-plan.md)           | Les régles de développement et les optimisations |
-| [`docs/wasm-integration-plan.md`](docs/wasm-integration-plan.md)     | Architecture WASM et bindings TypeScript         |
-| [`docs/webapp-usage-examples.md`](docs/webapp-usage-examples.md)     | Exemples React/Vue avec Workers                  |
-| [`docs/examples-and-test-cases.md`](docs/examples-and-test-cases.md) | Cas de test et benchmarks réalistes              |
+| File                                                                 | Content                                   |
+| -------------------------------------------------------------------- | ----------------------------------------- |
+| [`docs/mcdoc-format.md`](docs/mcdoc-format.md)                       | Complete MCDOC syntax with examples       |
+| [`docs/developpement-plan.md`](docs/developpement-plan.md)           | Development rules and optimizations       |
+| [`docs/wasm-integration-plan.md`](docs/wasm-integration-plan.md)     | WASM architecture and TypeScript bindings |
+| [`docs/webapp-usage-examples.md`](docs/webapp-usage-examples.md)     | React/Vue examples with Workers           |
+| [`docs/examples-and-test-cases.md`](docs/examples-and-test-cases.md) | Realistic test cases and benchmarks       |
 
-## 🎪 Points forts techniques
+## 🎪 Technical Highlights
 
-- **Aucun hardcoding** : Registres et MCDOC 100% externes via paramètres
-- **MCDOC modulaires** : Imports avec résolution de cycles (topological sort)
-- **Zero-copy parsing** : Lifetimes pour éviter allocations inutiles
-- **Error recovery** : Continue parsing malgré erreurs syntaxiques
-- **WASM optimisé** : <100KB bundle, performance ultra-rapide
-- **Integration Breeze** : Compatible avec écosystème existant
+- **No hardcoding** : Registries and MCDOC 100% external via parameters
+- **Modular MCDOC** : Imports with cycle resolution (topological sort)
+- **Zero-copy parsing** : Lifetimes to avoid unnecessary allocations
+- **Error recovery** : Continue parsing despite syntax errors
+- **Optimized WASM** : <100KB bundle, ultra-fast performance
+- **Breeze Integration** : Compatible with existing ecosystem
 
 ## 📦 Installation
 
 ```bash
-# Webapp uniquement (TypeScript/WASM)
+# Webapp only (TypeScript/WASM)
 npm install @voxel/rsmcdoc
 ```
 
-## 🔬 Usage TypeScript
+## 🔬 TypeScript Usage
 
 ```typescript
 import { McDocValidator } from "@voxel/rsmcdoc";
 
-// 1. Initialiser avec schemas MCDOC
+// 1. Initialize with MCDOC schemas
 const validator = await McDocValidator.init(mcdocFiles);
 
-// 2. Charger les registries Minecraft
+// 2. Load Minecraft registries
 validator.loadRegistries(registries, "1.21");
 
-// 3. Valider un JSON
+// 3. Validate a JSON
 const result = validator.validate(recipeJson, "recipe");
 
-// 4. Analyser un datapack complet
+// 4. Analyze a complete datapack
 const datapackResult = await validator.analyzeDatapack(files);
 ```
 
 ---
 
-**Performance targets réalistes**, **architecture claire**, **MCDOC syntax
-complète** - ready for production!
+**Realistic performance targets**, **clear architecture**, **complete MCDOC
+syntax** - ready for production!

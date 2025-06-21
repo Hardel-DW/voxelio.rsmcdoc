@@ -3,7 +3,7 @@ use voxel_rsmcdoc::validator::McDocValidator;
 #[test]
 fn test_validator_creation() {
     let validator = McDocValidator::new();
-    // Vérifier que le registre manager est initialisé
+    // Verify that the registry manager is initialized
     assert!(!validator.registry_manager.has_registry("item"));
 }
 
@@ -13,7 +13,7 @@ fn test_load_mcdoc_files() {
     let mut files = rustc_hash::FxHashMap::default();
     files.insert("test.mcdoc".to_string(), "struct Test {}");
     
-    // Load MCDOC files (simplifié - retourne toujours Ok)
+    // Load MCDOC files (simplified - always returns Ok)
     assert!(validator.load_mcdoc_files(files).is_ok());
 }
 
@@ -26,11 +26,11 @@ fn test_validate_json_basic() {
     });
     
     let result = validator.validate_json(&json, "minecraft:recipe");
-    // Sans registres chargés, validation basique seulement
+    // Without loaded registries, basic validation only
     assert!(result.is_valid || !result.errors.is_empty());
 }
 
-// Test extract_resource_id supprimé - fonction non utilisée en WASM
+// extract_resource_id test removed - function not used in WASM
 
 #[test]
 fn test_registry_loading() {

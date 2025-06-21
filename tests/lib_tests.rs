@@ -30,7 +30,7 @@ fn test_phase_0_compilation_works() {
     
     let result = validator.validate_json(&test_json, "minecraft:recipe");
     
-    // Basic assertions (removed useless comparisons)
+    // Basic assertions
     assert!(result.errors.is_empty() || !result.errors.is_empty());
     assert!(result.dependencies.is_empty() || !result.dependencies.is_empty());
 }

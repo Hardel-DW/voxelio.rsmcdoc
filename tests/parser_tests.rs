@@ -285,14 +285,14 @@ fn debug_complex_struct_tokens() {
     }
 }
 
-// CRITÈRE DE SUCCÈS PHASE 1 - Test de régression obligatoire du TODO
+// PHASE 1 SUCCESS CRITERIA - Mandatory regression test from TODO
 #[test]
 fn test_parse_simple_struct_regression() {
     let input = "struct Test { field: string }";
     let result = voxel_rsmcdoc::parse_mcdoc(input).unwrap();
     assert_eq!(result.declarations.len(), 1);
     
-    // Vérifier que l'AST est non-vide et contient la structure attendue
+    // Verify that the AST is non-empty and contains the expected structure
     match &result.declarations[0] {
         voxel_rsmcdoc::parser::Declaration::Struct(struct_decl) => {
             assert_eq!(struct_decl.name, "Test");
@@ -304,7 +304,7 @@ fn test_parse_simple_struct_regression() {
     }
 }
 
-// Tests supplémentaires pour valider la Phase 1
+// Additional tests to validate Phase 1
 #[test]
 fn test_parse_full_mcdoc_file() {
     let input = r#"
@@ -324,11 +324,11 @@ fn test_parse_full_mcdoc_file() {
     
     let result = voxel_rsmcdoc::parse_mcdoc(input).unwrap();
     
-    // Vérifier que le fichier complet est parsé
+    // Verify that the complete file is parsed
     assert_eq!(result.imports.len(), 1);
     assert_eq!(result.declarations.len(), 2);
     
-    // Vérifier l'import
+    // Verify import
     match &result.imports[0].path {
         voxel_rsmcdoc::parser::ImportPath::Absolute(segments) => {
             assert_eq!(segments, &["java", "world", "item", "ItemStack"]);
@@ -336,26 +336,26 @@ fn test_parse_full_mcdoc_file() {
         _ => panic!("Expected absolute import"),
     }
     
-    // Vérifier les déclarations
+    // Verify declarations
     assert!(matches!(result.declarations[0], voxel_rsmcdoc::parser::Declaration::Struct(_)));
     assert!(matches!(result.declarations[1], voxel_rsmcdoc::parser::Declaration::Enum(_)));
 }
 
-// CRITÈRE DE SUCCÈS PHASE 2 - Test d'intégration parser→registry 
+// PHASE 2 SUCCESS CRITERIA - Parser to registry integration test 
 #[test]
 fn test_parse_with_registry_basic() {
     let input = "struct Test { field: string }";
     let result = voxel_rsmcdoc::parse_mcdoc(input).unwrap();
     
-    // Parser fonctionne
+    // Parser works
     assert_eq!(result.declarations.len(), 1);
     
-    // Registry basic fonctionne
+    // Basic registry works
     let mut registry_manager = voxel_rsmcdoc::registry::RegistryManager::new();
     let mut item_registry = voxel_rsmcdoc::registry::Registry::new("item".to_string(), "1.21".to_string());
     item_registry.entries.insert("minecraft:diamond_sword".to_string());
     item_registry.entries.insert("minecraft:stick".to_string());
-    // add_registry supprimé - utiliser load_registry_from_json
+    // add_registry removed - use load_registry_from_json
     let registry_json = serde_json::json!({
         "entries": {
             "minecraft:diamond_sword": {},
@@ -364,7 +364,7 @@ fn test_parse_with_registry_basic() {
     });
     registry_manager.load_registry_from_json("item".to_string(), "1.20".to_string(), &registry_json).ok();
     
-    // Validation registry fonctionne
+    // Registry validation works
     let is_valid = registry_manager.validate_resource_location("item", "minecraft:diamond_sword", false).unwrap();
     assert!(is_valid);
     
@@ -372,7 +372,7 @@ fn test_parse_with_registry_basic() {
     assert!(!is_invalid);
 }
 
-// Test de parsing complet d'un fichier loot table
+// Full loot table file parsing test
 #[test]
 fn test_large_loot_table_parsing() {
     let mcdoc_content = fs::read_to_string("examples/mcdoc/data/loot/mod.mcdoc")

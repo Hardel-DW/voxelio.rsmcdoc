@@ -1,24 +1,22 @@
-//! Voxel RSMCDOC - Parser MCDOC en Rust
+//! Voxel RSMCDOC - MCDOC Parser in Rust
 
 pub mod lexer;
 pub mod parser;
 pub mod error;
 pub mod types;
 pub mod registry;
-// resolver module SUPPRIMÉ - Import resolution côté TypeScript
 pub mod validator;
 pub mod wasm;
 
-// Re-exports principaux pour compatibilité
+// Main re-exports for compatibility
 pub use error::{ParseError, SourcePos, ErrorType};
 pub use parser::{Parser, McDocFile, Declaration, StructDeclaration, FieldDeclaration, TypeExpression}; 
 pub use lexer::{Lexer, Token, TokenWithPos, Position};
 pub use types::*;
 pub use registry::Registry;
-// ImportResolver supprimé avec le module resolver
 pub use validator::McDocValidator;
 
-/// Point d'entrée principal pour parser un fichier MCDOC
+/// Main entry point to parse an MCDOC file
 pub fn parse_mcdoc(input: &str) -> Result<McDocFile, Vec<ParseError>> {
     let mut lexer = Lexer::new(input);
     let tokens = lexer.tokenize().map_err(|e| vec![e])?;
@@ -26,8 +24,6 @@ pub fn parse_mcdoc(input: &str) -> Result<McDocFile, Vec<ParseError>> {
     let mut parser = Parser::new(tokens);
     parser.parse()
 }
-
-
 
 /// Resource identifier for Minecraft resources (e.g., "minecraft:diamond_sword")
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -38,7 +34,6 @@ pub struct ResourceId {
 
 impl ResourceId {
     /// Parse a resource identifier string like "minecraft:diamond_sword"
-    /// If no namespace provided, it stays as-is without default namespace
     pub fn parse(input: &str) -> Result<Self, ParseError> {
         Self::parse_with_default_namespace(input, None)
     }
@@ -59,7 +54,7 @@ impl ResourceId {
                         path: path.to_string(),
                     }),
                     None => Ok(ResourceId {
-                        namespace: String::new(), // No default namespace
+                        namespace: String::new(),
                         path: path.to_string(),
                     }),
                 }
