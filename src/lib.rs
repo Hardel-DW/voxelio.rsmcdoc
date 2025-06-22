@@ -6,6 +6,8 @@ pub mod error;
 pub mod types;
 pub mod registry;
 pub mod validator;
+
+#[cfg(feature = "wasm")]
 pub mod wasm;
 
 // Main re-exports for compatibility

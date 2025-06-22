@@ -11,27 +11,31 @@ exclude = ["examples/", "tests/", "docs/", "*.ps1", "wasm_demo.ts"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Core parsing
-serde = { version = "1.0", features = ["derive"] }
+# Core parsing - minimal features only
+serde = { version = "1.0", features = ["derive"], default-features = false }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
-# Performance optimizations
-rustc-hash = "2.0"  # FxHashMap - actually used for HashMap replacements
+# Performance optimizations - need std for HashMap
+rustc-hash = { version = "2.0", features = ["std"] }
 
-# WASM bindings (conditional)
-wasm-bindgen = { version = "0.2", optional = true }
-wasm-bindgen-futures = { version = "0.4", optional = true }
-js-sys = { version = "0.3", optional = true }
-web-sys = { version = "0.3", features = ["console"], optional = true, default-features = false }
+# WASM bindings (conditional) - minimal features
+wasm-bindgen = { version = "0.2", optional = true, default-features = false }
+js-sys = { version = "0.3", optional = true, default-features = false }
+serde-wasm-bindgen = { version = "0.6", optional = true, default-features = false }
+
+# Optional for debugging only
 console_error_panic_hook = { version = "0.1", optional = true }
-serde-wasm-bindgen = { version = "0.6", optional = true }
+
+# NAPI for Node.js (alternative to WASM)
+napi = { version = "2.14", features = ["full"], optional = true }
+napi-derive = { version = "2.14", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [profile.release]
-opt-level = "s"        # Optimize for size
-lto = "fat"            # Maximum link time optimization
+opt-level = "z"        # Ultra size optimization
+lto = "fat"            # Maximum link time optimization  
 codegen-units = 1      # Better optimization
 panic = "abort"        # Remove panic unwinding
 strip = "symbols"      # Strip debug symbols
@@ -39,19 +43,22 @@ overflow-checks = false # Remove overflow checks
 debug-assertions = false # Remove debug assertions
 
 [profile.release.package."*"]
-opt-level = "s"        # Force size optimization for all deps
+opt-level = "z"        # Ultra size optimization for all deps
 
-# Target WASM specific optimizations
-[profile.release.package.wasm-bindgen]
-opt-level = "s"
+# WASM-specific ultra optimizations
+[profile.release.package.serde_json]
+opt-level = "z"        # Critical - serde_json is heavy
 
-[profile.release.package.js-sys]  
-opt-level = "s"
+[profile.release.package.wasm-bindgen]  
+opt-level = "z"
 
-[profile.release.package.web-sys]
-opt-level = "s"
+[profile.release.package.js-sys]
+opt-level = "z"
+
+[profile.release.package.serde-wasm-bindgen]
+opt-level = "z"
 
 [features]
 default = []  # No default features
-wasm = ["wasm-bindgen", "js-sys"]
-wasm-full = ["wasm", "wasm-bindgen-futures", "web-sys", "console_error_panic_hook", "serde-wasm-bindgen"] 
+wasm = ["wasm-bindgen", "js-sys", "serde-wasm-bindgen"]
+wasm-debug = ["wasm", "console_error_panic_hook"]

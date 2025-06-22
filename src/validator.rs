@@ -140,6 +140,20 @@ impl<'input> McDocValidator<'input> {
         
         result
     }
+    
+    /// Get required registries for a JSON without full validation
+    /// Lightweight operation for dependency analysis
+    pub fn get_required_registries(&self, json: &serde_json::Value, _resource_type: &str) -> Vec<String> {
+        let dependencies = self.registry_manager.scan_required_registries(json);
+        let mut registries: Vec<String> = dependencies.iter()
+            .map(|dep| dep.registry.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        
+        registries.sort();
+        registries
+    }
 }
 
 impl<'input> Default for McDocValidator<'input> {

@@ -6,3 +6,12 @@ target/
 .cursor/
 docs/
 examples/
+
+package/dist/
+package/node_modules/
+package/package-lock.json
+package/package.json
+package/package-lock.json
+package/*.wasm
+package/*.d.ts
+package/*.js
