@@ -126,6 +126,12 @@ pub struct FileError {
     pub error: McDocError,
 }
 
+impl Default for DatapackResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DatapackResult {
     /// Create a new empty result
     pub fn new() -> Self {

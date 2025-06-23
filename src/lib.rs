@@ -16,7 +16,9 @@ pub use parser::{Parser, McDocFile, Declaration, StructDeclaration, FieldDeclara
 pub use lexer::{Lexer, Token, TokenWithPos, Position};
 pub use types::*;
 pub use registry::Registry;
-pub use validator::McDocValidator;
+pub use validator::DatapackValidator;
+
+use std::fmt;
 
 /// Main entry point to parse an MCDOC file
 pub fn parse_mcdoc(input: &str) -> Result<McDocFile, Vec<ParseError>> {
@@ -63,11 +65,13 @@ impl ResourceId {
             },
             _ => Err(ParseError::InvalidResourceId(input.to_string())),
         }
-    }
-    
-    /// Convert back to string format
-    pub fn to_string(&self) -> String {
-        format!("{}:{}", self.namespace, self.path)
+        }
+
+}
+
+impl fmt::Display for ResourceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.namespace, self.path)
     }
 }
 

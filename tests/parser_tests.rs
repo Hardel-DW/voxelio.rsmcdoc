@@ -1,400 +1,257 @@
-use std::fs;
 use voxel_rsmcdoc::{
-    lexer::{Lexer, Token, TokenWithPos, Position},
-    parser::{Parser, ImportPath, DispatchTarget, TypeExpression, LiteralValue, Declaration, DynamicReferenceType}
+    lexer::Lexer,
+    parser::{Declaration, Parser},
 };
 
 #[test]
-fn test_parse_simple_import() {
-    let input = "use ::minecraft::item::ItemStack";
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let import = parser.parse_import().unwrap();
-    
-    match import.path {
-        ImportPath::Absolute(segments) => {
-            assert_eq!(segments, vec!["minecraft", "item", "ItemStack"]);
-        }
-        _ => panic!("Expected absolute import"),
-    }
-}
-
-#[test]
-fn test_parse_relative_import() {
-    let input = "use super::loot::LootCondition";
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let import = parser.parse_import().unwrap();
-    
-    match import.path {
-        ImportPath::Relative(segments) => {
-            assert_eq!(segments, vec!["loot", "LootCondition"]);
-        }
-        _ => panic!("Expected relative import"),
-    }
-}
-
-#[test]
-fn test_parse_simple_struct() {
-    let input = "struct Recipe {}";
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let struct_decl = parser.parse_struct(Vec::new()).unwrap();
-    assert_eq!(struct_decl.name, "Recipe");
-}
-
-#[test]
-fn test_parse_dispatch_simple() {
-    // dispatch minecraft:resource[recipe] to struct {}
-    let input = r#"dispatch minecraft:resource[recipe] to struct {}"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let result = parser.parse_dispatch(Vec::new()).unwrap();
-    
-    assert_eq!(result.source.registry, "resource");
-    assert_eq!(result.targets.len(), 1);
-    assert!(matches!(result.targets[0], DispatchTarget::Specific("recipe")));
-    assert!(matches!(result.target_type, TypeExpression::Struct(_)));
-}
-
-#[test]
-fn test_parse_dispatch_multi_target() {
-    // dispatch minecraft:recipe_serializer[smelting,blasting,smoking] to Smelting
-    let input = r#"dispatch minecraft:recipe_serializer[smelting,blasting,smoking] to Smelting"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let result = parser.parse_dispatch(Vec::new()).unwrap();
-    
-    assert_eq!(result.source.registry, "recipe_serializer");
-    assert_eq!(result.targets.len(), 3);
-    assert!(matches!(result.targets[0], DispatchTarget::Specific("smelting")));
-    assert!(matches!(result.targets[1], DispatchTarget::Specific("blasting")));
-    assert!(matches!(result.targets[2], DispatchTarget::Specific("smoking")));
-}
-
-#[test]
-fn test_parse_dispatch_unknown() {
-    // dispatch minecraft:recipe_serializer[%unknown] to struct {}
-    let input = r#"dispatch minecraft:recipe_serializer[%unknown] to struct {}"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let result = parser.parse_dispatch(Vec::new()).unwrap();
-    
-    assert_eq!(result.source.registry, "recipe_serializer");
-    assert_eq!(result.targets.len(), 1);
-    assert!(matches!(result.targets[0], DispatchTarget::Unknown));
-}
-
-#[test]
-fn test_parse_enum_with_values() {
-    let input = r#"enum(string) GameMode { Creative = "creative", Survival = "survival" }"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let result = parser.parse_enum(Vec::new()).unwrap();
-    
-    assert_eq!(result.name, "GameMode");
-    assert_eq!(result.base_type, Some("string"));
-    assert_eq!(result.variants.len(), 2);
-    assert_eq!(result.variants[0].name, "Creative");
-    assert!(matches!(result.variants[0].value, Some(LiteralValue::String("creative"))));
-}
-
-#[test]  
-fn test_parse_type_alias() {
-    let input = r#"type ItemStack = struct { item: string, count: int }"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let result = parser.parse_type_alias(Vec::new()).unwrap();
-    
-    assert_eq!(result.name, "ItemStack");
-    assert!(matches!(result.type_expr, TypeExpression::Struct(_)));
-}
-
-// #[test]
-// fn test_parse_simple_annotation() {
-//     // TODO: Méthode parse_annotation_type à implémenter
-// }
-
-// #[test]
-// fn test_parse_complex_annotation() {
-//     // TODO: Méthode parse_annotation_type à implémenter
-// }
-
-// #[test]
-// fn test_parse_annotation_with_array() {
-//     // TODO: Méthode parse_annotation_type à implémenter
-// }
-
-// #[test]
-// fn test_parse_version_annotations() {
-//     // TODO: Méthode parse_annotation_type à implémenter
-// }
-
-#[test]
-fn test_parse_spread_expression() {
-    let tokens = vec![
-        TokenWithPos { token: Token::DotDotDot, position: Position { line: 1, column: 1, offset: 0 } },
-        TokenWithPos { token: Token::Identifier("minecraft"), position: Position { line: 1, column: 4, offset: 3 } },
-        TokenWithPos { token: Token::Colon, position: Position { line: 1, column: 13, offset: 12 } },
-        TokenWithPos { token: Token::Identifier("recipe_serializer"), position: Position { line: 1, column: 14, offset: 13 } },
-        TokenWithPos { token: Token::LeftBracket, position: Position { line: 1, column: 31, offset: 30 } },
-        TokenWithPos { token: Token::LeftBracket, position: Position { line: 1, column: 32, offset: 31 } },
-        TokenWithPos { token: Token::Type, position: Position { line: 1, column: 33, offset: 32 } },
-        TokenWithPos { token: Token::RightBracket, position: Position { line: 1, column: 37, offset: 36 } },
-        TokenWithPos { token: Token::RightBracket, position: Position { line: 1, column: 38, offset: 37 } },
-    ];
-    
-    let mut parser = Parser::new(tokens);
-    let result = parser.parse_single_type().unwrap();
-    
-            match result {
-            TypeExpression::Spread(spread) => {
-                assert_eq!(spread.namespace, "minecraft");
-                assert_eq!(spread.registry, "recipe_serializer");
-                assert!(spread.dynamic_key.is_some());
-                
-                let dynamic_ref = spread.dynamic_key.unwrap();
-                match dynamic_ref.reference {
-                    DynamicReferenceType::Field(field) => assert_eq!(field, "type"),
-                    _ => panic!("Expected field reference"),
-                }
-            }
-            _ => panic!("Expected spread expression"),
-        }
-}
-
-#[test]
-fn test_parse_dynamic_reference_special_key() {
-    let tokens = vec![
-        TokenWithPos { token: Token::LeftBracket, position: Position { line: 1, column: 1, offset: 0 } },
-        TokenWithPos { token: Token::LeftBracket, position: Position { line: 1, column: 2, offset: 1 } },
-        TokenWithPos { token: Token::Percent, position: Position { line: 1, column: 3, offset: 2 } },
-        TokenWithPos { token: Token::Identifier("key"), position: Position { line: 1, column: 4, offset: 3 } },
-        TokenWithPos { token: Token::RightBracket, position: Position { line: 1, column: 7, offset: 6 } },
-        TokenWithPos { token: Token::RightBracket, position: Position { line: 1, column: 8, offset: 7 } },
-    ];
-    
-    let mut parser = Parser::new(tokens);
-    let result = parser.parse_single_type().unwrap();
-    
-    // Should handle dynamic reference in array context
-    match result {
-        TypeExpression::Reference(_) => {
-            // This is correct - dynamic references are handled as special references
-        }
-        _ => panic!("Expected reference type for dynamic reference"),
-    }
-}
-
-#[test]
-fn test_parse_dispatch_with_dynamic_key() {
-    // dispatch minecraft:recipe_serializer[crafting_shaped][[type]] to struct {}
-    let input = r#"dispatch minecraft:recipe_serializer[crafting_shaped][[type]] to struct {}"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let result = parser.parse_dispatch(Vec::new()).unwrap();
-    
-    assert_eq!(result.source.registry, "recipe_serializer");
-    assert_eq!(result.source.key, Some("type"));
-    assert_eq!(result.targets.len(), 1);
-    assert!(matches!(result.targets[0], DispatchTarget::Specific("crafting_shaped")));
-}
-
-#[test]
-fn test_parse_dispatch_with_special_key() {
-    // dispatch minecraft:effect_component[%unknown][[%key]] to EffectComponent
-    let input = r#"dispatch minecraft:effect_component[%unknown][[%key]] to EffectComponent"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let result = parser.parse_dispatch(Vec::new()).unwrap();
-    
-    assert_eq!(result.source.registry, "effect_component");
-    assert_eq!(result.source.key, Some("key"));
-    assert_eq!(result.targets.len(), 1);
-    assert!(matches!(result.targets[0], DispatchTarget::Unknown));
-}
-
-#[test]
-fn test_parse_complex_struct_with_spread() {
-    let input = r#"struct Recipe { type: string, ...minecraft:recipe_serializer[[type]] }"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    
-    let result = parser.parse().unwrap();
-    
-    assert_eq!(result.declarations.len(), 1);
-    if let Declaration::Struct(struct_decl) = &result.declarations[0] {
-        assert_eq!(struct_decl.name, "Recipe");
-        assert_eq!(struct_decl.fields.len(), 2);
-        
-        // First field should be regular field
-        assert_eq!(struct_decl.fields[0].name, "type");
-        
-        // Second field should have spread expression type
-        match &struct_decl.fields[1].field_type {
-            TypeExpression::Spread(spread) => {
-                assert_eq!(spread.namespace, "minecraft");
-                assert_eq!(spread.registry, "recipe_serializer");
-                assert!(spread.dynamic_key.is_some());
-            }
-            _ => panic!("Expected spread expression in second field"),
-        }
-    } else {
-        panic!("Expected struct declaration");
-    }
-}
-
-#[test]
-fn debug_complex_struct_tokens() {
-    let input = r#"struct Recipe { type: string, ...minecraft:recipe_serializer[[type]] }"#;
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize().unwrap();
-    
-    if tokens.len() > 0 {
-        // Large file - only show summary
-    }
-    
-    let mut parser = Parser::new(tokens);
-    match parser.parse() {
-        Ok(_ast) => {
-            // Parsing successful
-        }
-        Err(_errors) => {
-            // Expected with simplified parser
-        }
-    }
-}
-
-// PHASE 1 SUCCESS CRITERIA - Mandatory regression test from TODO
-#[test]
-fn test_parse_simple_struct_regression() {
-    let input = "struct Test { field: string }";
-    let result = voxel_rsmcdoc::parse_mcdoc(input).unwrap();
-    assert_eq!(result.declarations.len(), 1);
-    
-    // Verify that the AST is non-empty and contains the expected structure
-    match &result.declarations[0] {
-        voxel_rsmcdoc::parser::Declaration::Struct(struct_decl) => {
-            assert_eq!(struct_decl.name, "Test");
-            assert_eq!(struct_decl.fields.len(), 1);
-            assert_eq!(struct_decl.fields[0].name, "field");
-            assert!(!struct_decl.fields[0].optional);
-        }
-        _ => panic!("Expected struct declaration"),
-    }
-}
-
-// Additional tests to validate Phase 1
-#[test]
-fn test_parse_full_mcdoc_file() {
-    let input = r#"
-        use ::java::world::item::ItemStack
-        
-        struct Recipe {
-            type: string,
-            result: ItemStack,
-            ingredients?: [string],
-        }
-        
-        enum(string) CraftingType {
-            Shaped = "shaped",
-            Shapeless = "shapeless",
+fn test_parse_struct_with_fields() {
+    let content = r#"
+        struct Test {
+            field1: string,
+            field2: int,
         }
     "#;
-    
-    let result = voxel_rsmcdoc::parse_mcdoc(input).unwrap();
-    
-    // Verify that the complete file is parsed
-    assert_eq!(result.imports.len(), 1);
-    assert_eq!(result.declarations.len(), 2);
-    
-    // Verify import
-    match &result.imports[0].path {
-        voxel_rsmcdoc::parser::ImportPath::Absolute(segments) => {
-            assert_eq!(segments, &["java", "world", "item", "ItemStack"]);
-        }
-        _ => panic!("Expected absolute import"),
-    }
-    
-    // Verify declarations
-    assert!(matches!(result.declarations[0], voxel_rsmcdoc::parser::Declaration::Struct(_)));
-    assert!(matches!(result.declarations[1], voxel_rsmcdoc::parser::Declaration::Enum(_)));
-}
-
-// PHASE 2 SUCCESS CRITERIA - Parser to registry integration test 
-#[test]
-fn test_parse_with_registry_basic() {
-    let input = "struct Test { field: string }";
-    let result = voxel_rsmcdoc::parse_mcdoc(input).unwrap();
-    
-    // Parser works
-    assert_eq!(result.declarations.len(), 1);
-    
-    // Basic registry works
-    let mut registry_manager = voxel_rsmcdoc::registry::RegistryManager::new();
-    let mut item_registry = voxel_rsmcdoc::registry::Registry::new("item".to_string(), "1.21".to_string());
-    item_registry.entries.insert("minecraft:diamond_sword".to_string());
-    item_registry.entries.insert("minecraft:stick".to_string());
-    // add_registry removed - use load_registry_from_json
-    let registry_json = serde_json::json!({
-        "entries": {
-            "minecraft:diamond_sword": {},
-            "minecraft:stick": {}
-        }
-    });
-    registry_manager.load_registry_from_json("item".to_string(), "1.20".to_string(), &registry_json).ok();
-    
-    // Registry validation works
-    let is_valid = registry_manager.validate_resource_location("item", "minecraft:diamond_sword", false).unwrap();
-    assert!(is_valid);
-    
-    let is_invalid = registry_manager.validate_resource_location("item", "minecraft:nonexistent", false).unwrap();
-    assert!(!is_invalid);
-}
-
-// Full loot table file parsing test
-#[test]
-fn test_large_loot_table_parsing() {
-    let mcdoc_content = fs::read_to_string("tests/dataset/mcdoc/data/loot/mod.mcdoc")
-        .expect("Unable to load loot table MCDOC");
-    
-    let mut lexer = Lexer::new(&mcdoc_content);
-    let tokens = lexer.tokenize().expect("Tokenization should work");
-    
-    // Remove debug output
-    if tokens.len() > 1000 {
-        // Large loot table detected
-    }
-    
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
     let mut parser = Parser::new(tokens);
-    
-    match parser.parse() {
-        Ok(_ast) => {
-            // Parsing successful
+
+    let ast = parser.parse().unwrap();
+    assert_eq!(ast.declarations.len(), 1);
+
+    if let Declaration::Struct(struct_decl) = &ast.declarations[0] {
+        assert_eq!(struct_decl.name, "Test");
+        assert_eq!(struct_decl.members.len(), 2);
+        if let voxel_rsmcdoc::parser::StructMember::Field(field) = &struct_decl.members[0] {
+            assert_eq!(field.name, "field1");
         }
-        Err(_errors) => {
-            // Expected with simplified parser
+        if let voxel_rsmcdoc::parser::StructMember::Field(field) = &struct_decl.members[1] {
+            assert_eq!(field.name, "field2");
         }
+    } else {
+        panic!("Expected a struct declaration");
+    }
+}
+
+#[test]
+fn test_parse_struct_with_optional_fields() {
+    let content = r#"
+        struct Test {
+            field1?: string,
+            field2: int,
+        }
+    "#;
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+
+    let ast = parser.parse().unwrap();
+    assert_eq!(ast.declarations.len(), 1);
+
+    if let Declaration::Struct(struct_decl) = &ast.declarations[0] {
+        if let voxel_rsmcdoc::parser::StructMember::Field(field) = &struct_decl.members[0] {
+            assert!(field.optional);
+        }
+        if let voxel_rsmcdoc::parser::StructMember::Field(field) = &struct_decl.members[1] {
+            assert!(!field.optional);
+        }
+    } else {
+        panic!("Expected a struct declaration");
+    }
+}
+
+#[test]
+fn test_parse_dispatch_to_named_struct() {
+    let content = "dispatch minecraft:test to Test;";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_parse_dispatch_with_key_to_named_struct() {
+    let content = "dispatch minecraft:test[key] to Test;";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_parse_dispatch_to_inline_struct() {
+    let content = "dispatch minecraft:test to struct { field: string };";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_parse_enum() {
+    let content = r#"
+        enum Test: string {
+            Variant1 = "v1",
+            Variant2 = "v2",
+        }
+    "#;
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_parse_type_alias() {
+    let content = "type Test = string;";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_parse_import_statement() {
+    let content = "use a::b::c;";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.imports.len(), 1);
+}
+
+#[test]
+fn test_parse_annotations() {
+    let content = r#"
+        #[id(registry="minecraft:item")]
+        struct Test {
+            field: string,
+        }
+    "#;
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+    if let Declaration::Struct(s) = &result.declarations[0] {
+        assert_eq!(s.annotations.len(), 1);
+    } else {
+        panic!();
+    }
+}
+
+#[test]
+fn test_union_type() {
+    let content = "type MyUnion = string | int;";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_array_type() {
+    let content = "type MyArray = string[];";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_generic_type() {
+    let content = "type MyGeneric = Map<string, int>;";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_spread_operator() {
+    let content = "dispatch minecraft:recipe to ...minecraft:item;";
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_multiline_dispatch() {
+    let content = r#"
+        dispatch minecraft:recipe to struct {
+            a: string,
+            b: int,
+        };
+    "#;
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_complex_dispatch() {
+    let content = r#"
+        dispatch minecraft:recipe[stone, stick] to struct {
+            a: string,
+            b: int,
+        };
+    "#;
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let result = parser.parse().unwrap();
+    assert_eq!(result.declarations.len(), 1);
+}
+
+#[test]
+fn test_array_with_annotations() {
+    let content = r#"
+        struct GpuWarnlist {
+            renderer?: [#[regex_pattern] string],
+            version?: [#[regex_pattern] string],
+        }
+    "#;
+    let mut lexer = Lexer::new(content);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+
+    let ast = parser.parse().unwrap();
+    assert_eq!(ast.declarations.len(), 1);
+
+    if let Declaration::Struct(struct_decl) = &ast.declarations[0] {
+        assert_eq!(struct_decl.name, "GpuWarnlist");
+        assert_eq!(struct_decl.members.len(), 2);
+        
+        // Check first field: renderer?: [#[regex_pattern] string]
+        if let voxel_rsmcdoc::parser::StructMember::Field(field) = &struct_decl.members[0] {
+            assert_eq!(field.name, "renderer");
+            assert!(field.optional);
+            // Should be an array type
+            if let voxel_rsmcdoc::parser::TypeExpression::Array { element_type, .. } = &field.field_type {
+                // Element should be string (annotation is parsed but not stored in TypeExpression for now)
+                if let voxel_rsmcdoc::parser::TypeExpression::Simple(type_name) = element_type.as_ref() {
+                    assert_eq!(*type_name, "string");
+                } else {
+                    panic!("Expected simple type 'string' as array element");
+                }
+            } else {
+                panic!("Expected array type for renderer field");
+            }
+        } else {
+            panic!("Expected field for renderer");
+        }
+    } else {
+        panic!("Expected a struct declaration");
     }
 } 

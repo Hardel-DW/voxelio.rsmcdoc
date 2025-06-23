@@ -1,7 +1,7 @@
 //! Parser MCDOC unifié
 
-use crate::lexer::{Token, TokenWithPos, Position};
 use crate::error::{ParseError, SourcePos};
+use crate::lexer::{Token, TokenWithPos, Position};
 use rustc_hash::FxHashMap;
 
 // ================================
@@ -57,7 +57,7 @@ pub enum AnnotationData<'input> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDeclaration<'input> {
     pub name: &'input str,
-    pub fields: Vec<FieldDeclaration<'input>>,
+    pub members: Vec<StructMember<'input>>,
     pub annotations: Vec<Annotation<'input>>,
     pub position: Position,
 }
@@ -67,6 +67,24 @@ pub struct StructDeclaration<'input> {
 pub struct FieldDeclaration<'input> {
     pub name: &'input str,
     pub field_type: TypeExpression<'input>,
+    pub optional: bool,
+    pub annotations: Vec<Annotation<'input>>,
+    pub position: Position,
+}
+
+/// Struct member (either a field, dynamic field, or a spread)
+#[derive(Debug, Clone, PartialEq)]
+pub enum StructMember<'input> {
+    Field(FieldDeclaration<'input>),
+    DynamicField(DynamicFieldDeclaration<'input>),
+    Spread(SpreadExpression<'input>),
+}
+
+/// Dynamic field declaration like [#[id="mob_effect"] string]: MobEffectPredicate
+#[derive(Debug, Clone, PartialEq)]
+pub struct DynamicFieldDeclaration<'input> {
+    pub key_type: TypeExpression<'input>,
+    pub value_type: TypeExpression<'input>,
     pub optional: bool,
     pub annotations: Vec<Annotation<'input>>,
     pub position: Position,
@@ -95,6 +113,7 @@ pub struct EnumVariant<'input> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDeclaration<'input> {
     pub name: &'input str,
+    pub type_params: Vec<&'input str>, // Generic parameters like <C, T>
     pub type_expr: TypeExpression<'input>,
     pub annotations: Vec<Annotation<'input>>,
     pub position: Position,
@@ -134,13 +153,19 @@ pub enum TypeExpression<'input> {
         constraints: Option<ArrayConstraints>,
     },
     Union(Vec<TypeExpression<'input>>),
-    Struct(Vec<FieldDeclaration<'input>>),
+    Struct(Vec<StructMember<'input>>),
     Generic {
         name: &'input str,
         type_args: Vec<TypeExpression<'input>>,
     },
     Reference(ImportPath<'input>),
     Spread(SpreadExpression<'input>),
+    Literal(LiteralValue<'input>),
+    /// Type with constraints like "float @ -80..80"
+    Constrained {
+        base_type: Box<TypeExpression<'input>>,
+        constraints: TypeConstraints,
+    },
 }
 
 /// Array constraints
@@ -156,6 +181,7 @@ pub struct SpreadExpression<'input> {
     pub namespace: &'input str,
     pub registry: &'input str,
     pub dynamic_key: Option<DynamicReference<'input>>,
+    pub annotations: Vec<Annotation<'input>>,
     pub position: Position,
 }
 
@@ -179,6 +205,13 @@ pub enum LiteralValue<'input> {
     String(&'input str),
     Number(f64),
     Boolean(bool),
+}
+
+/// Type constraints (like @ -80..80)
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeConstraints {
+    pub min: Option<f64>,
+    pub max: Option<f64>,
 }
 
 // ================================
@@ -211,26 +244,32 @@ impl<'input> Parser<'input> {
         while !self.is_at_end() {
             match self.current_token() {
                 Ok(token) => match &token.token {
-                    Token::Use => {
-                        match self.parse_import() {
-                            Ok(import) => imports.push(import),
-                            Err(e) => {
-                                self.errors.push(e);
-                                self.synchronize();
+                    Token::Use => match self.parse_import() {
+                        Ok(import) => {
+                            imports.push(import);
+                            if self.check_token(Token::Semicolon) {
+                                self.advance();
                             }
+                        },
+                        Err(e) => {
+                            self.errors.push(e);
+                            self.synchronize();
                         }
-                    }
+                    },
                     Token::Eof => break,
-                    _ => {
-                        match self.parse_declaration() {
-                            Ok(Some(declaration)) => declarations.push(declaration),
-                            Ok(None) => self.advance(),
-                            Err(e) => {
-                                self.errors.push(e);
-                                self.synchronize();
+                    _ => match self.parse_declaration() {
+                        Ok(Some(declaration)) => {
+                            declarations.push(declaration);
+                            if self.check_token(Token::Semicolon) {
+                                self.advance();
                             }
+                        },
+                        Ok(None) => self.advance(),
+                        Err(e) => {
+                            self.errors.push(e);
+                            self.synchronize();
                         }
-                    }
+                    },
                 },
                 Err(_) => break,
             }
@@ -238,7 +277,10 @@ impl<'input> Parser<'input> {
         }
 
         if self.errors.is_empty() {
-            Ok(McDocFile { imports, declarations })
+            Ok(McDocFile {
+                imports,
+                declarations,
+            })
         } else {
             Err(std::mem::take(&mut self.errors))
         }
@@ -248,49 +290,47 @@ impl<'input> Parser<'input> {
     // HELPER METHODS
     // ================================
 
-    fn current_pos(&self) -> SourcePos {
-        if self.current < self.tokens.len() {
-            let pos = self.tokens[self.current].position;
-            SourcePos::new(pos.line, pos.column)
-        } else {
-            SourcePos::new(0, 0)
-        }
-    }
-
-    fn make_position(&self, pos: SourcePos) -> Position {
-        Position {
-            line: pos.line,
-            column: pos.column,
-            offset: 0,
-        }
+    fn current_pos(&self) -> Position {
+        self.tokens
+            .get(self.current)
+            .map(|t| t.position)
+            .unwrap_or_default()
     }
 
     fn syntax_error(&self, expected: impl Into<String>, found: impl Into<String>) -> ParseError {
-        ParseError::syntax(expected, found, self.current_pos())
+        let pos = self.current_pos();
+        ParseError::Syntax {
+            expected: expected.into(),
+            found: found.into(),
+            pos: SourcePos { line: pos.line, column: pos.column }
+        }
     }
 
     fn skip_whitespace(&mut self) {
-        while !self.is_at_end() {
-            match &self.tokens[self.current].token {
-                Token::Newline | Token::Whitespace => {
-                    self.current += 1;
-                }
-                _ => break,
+        while let Ok(token) = self.current_token() {
+            if matches!(
+                token.token,
+                Token::Whitespace | Token::Newline | Token::LineComment(_) | Token::BlockComment(_)
+            ) {
+                self.advance();
+            } else {
+                break;
             }
         }
     }
 
     fn current_token(&self) -> Result<&TokenWithPos<'input>, ParseError> {
-        self.tokens.get(self.current)
-            .ok_or_else(|| ParseError::lexer("Unexpected end of input", self.current_pos()))
+        self.tokens
+            .get(self.current)
+            .ok_or_else(|| self.syntax_error("token", "EOF"))
     }
 
-    fn check_token(&self, token_type: &Token) -> bool {
-        if let Ok(current) = self.current_token() {
-            std::mem::discriminant(&current.token) == std::mem::discriminant(token_type)
-        } else {
-            false
+    fn check_token(&self, token_type: Token) -> bool {
+        if self.is_at_end() {
+            return false;
         }
+        // Use std::mem::discriminant to compare enum variants without their data
+        std::mem::discriminant(&self.current_token().unwrap().token) == std::mem::discriminant(&token_type)
     }
 
     fn advance(&mut self) {
@@ -300,672 +340,1166 @@ impl<'input> Parser<'input> {
     }
 
     fn is_at_end(&self) -> bool {
-        self.current >= self.tokens.len()
+        self.current >= self.tokens.len() || 
+        (self.current < self.tokens.len() && 
+         matches!(self.tokens[self.current].token, Token::Eof))
     }
 
-    fn consume(&mut self, expected_token: &Token, error_msg: &str) -> Result<(), ParseError> {
+    fn consume(&mut self, expected_token: Token, error_msg: &str) -> Result<(), ParseError> {
+        self.skip_whitespace();
         if self.check_token(expected_token) {
             self.advance();
             Ok(())
         } else {
-            let found = self.current_token()
-                .map(|t| format!("{:?}", t.token))
-                .unwrap_or_else(|_| "end of input".to_string());
-            Err(self.syntax_error(error_msg, found))
+            Err(self.syntax_error(error_msg, format!("{:?}", self.current_token().unwrap().token)))
         }
     }
 
-    fn current_identifier(&self) -> Result<&'input str, ParseError> {
-        match &self.current_token()?.token {
-            Token::Identifier(name) => Ok(name),
-            // Accept keywords as identifiers in certain contexts
-            Token::Type => Ok("type"),
-            Token::Use => Ok("use"),
-            Token::Struct => Ok("struct"),
-            Token::Enum => Ok("enum"),
-            Token::Dispatch => Ok("dispatch"),
-            Token::To => Ok("to"),
-            Token::Super => Ok("super"),
-            _ => {
-                let found = format!("{:?}", self.current_token()?.token);
-                Err(self.syntax_error("identifier", found))
-            }
+    fn current_identifier(&mut self) -> Result<&'input str, ParseError> {
+        self.skip_whitespace();
+        let token_with_pos = self.current_token()?.clone();
+        match token_with_pos.token {
+            Token::Identifier(s) => {
+                self.advance();
+                Ok(s)
+            },
+            // Allow keywords as field names
+            Token::Type => {
+                self.advance();
+                Ok("type")
+            },
+            Token::Struct => {
+                self.advance();
+                Ok("struct")
+            },
+            Token::Enum => {
+                self.advance();
+                Ok("enum")
+            },
+            Token::Dispatch => {
+                self.advance();
+                Ok("dispatch")
+            },
+            Token::Use => {
+                self.advance();
+                Ok("use")
+            },
+            Token::To => {
+                self.advance();
+                Ok("to")
+            },
+            Token::Super => {
+                self.advance();
+                Ok("super")
+            },
+            Token::True => {
+                self.advance();
+                Ok("true")
+            },
+            Token::False => {
+                self.advance();
+                Ok("false")
+            },
+            _ => Err(self.syntax_error(
+                "identifier",
+                format!("{:?}", token_with_pos.token),
+            )),
+        }
+    }
+
+    /// Parse special identifiers that can include patterns like %unknown, %key
+    fn current_identifier_or_special(&mut self) -> Result<&'input str, ParseError> {
+        self.skip_whitespace();
+        let token_with_pos = self.current_token()?.clone();
+        match token_with_pos.token {
+            Token::Identifier(s) => {
+                self.advance();
+                Ok(s)
+            },
+            Token::Percent => {
+                // Handle %unknown, %key patterns
+                self.advance(); // consume %
+                
+                // Get the identifier after %
+                if let Ok(next_token) = self.current_token() {
+                    if let Token::Identifier(name) = next_token.token {
+                        self.advance(); // consume the identifier
+                        // For now, return the name without % for simplicity
+                        // Later we can extend this to return the full pattern
+                        Ok(name)
+                    } else {
+                        Err(self.syntax_error("identifier after %", format!("{:?}", next_token.token)))
+                    }
+                } else {
+                    Err(self.syntax_error("identifier after %", "end of input"))
+                }
+            },
+            // Allow keywords as special identifiers too
+            Token::Type => {
+                self.advance();
+                Ok("type")
+            },
+            Token::Struct => {
+                self.advance();
+                Ok("struct")
+            },
+            Token::Enum => {
+                self.advance();
+                Ok("enum")
+            },
+            Token::Dispatch => {
+                self.advance();
+                Ok("dispatch")
+            },
+            Token::Use => {
+                self.advance();
+                Ok("use")
+            },
+            Token::To => {
+                self.advance();
+                Ok("to")
+            },
+            Token::Super => {
+                self.advance();
+                Ok("super")
+            },
+            Token::True => {
+                self.advance();
+                Ok("true")
+            },
+            Token::False => {
+                self.advance();
+                Ok("false")
+            },
+            _ => Err(self.syntax_error(
+                "identifier or special pattern",
+                format!("{:?}", token_with_pos.token),
+            )),
         }
     }
 
     fn synchronize(&mut self) {
         self.advance();
         while !self.is_at_end() {
-            match &self.current_token().map(|t| &t.token) {
-                Ok(Token::Struct) | Ok(Token::Enum) | Ok(Token::Type) | 
-                Ok(Token::Dispatch) | Ok(Token::Use) => return,
+            if self.check_token(Token::Newline) {
+                return;
+            }
+            match self.current_token().unwrap().token {
+                Token::Struct | Token::Enum | Token::Type | Token::Dispatch | Token::Use => return,
                 _ => self.advance(),
             }
         }
     }
 
     // ================================
-    // PARSING METHODS
+    // MAIN PARSING LOGIC
     // ================================
 
     pub fn parse_import(&mut self) -> Result<ImportStatement<'input>, ParseError> {
         let pos = self.current_pos();
-        self.consume(&Token::Use, "use")?;
-        self.skip_whitespace();
-
+        self.consume(Token::Use, "Expected 'use'")?;
         let path = self.parse_import_path()?;
-        self.skip_whitespace();
-
-        Ok(ImportStatement { 
-            path, 
-            position: self.make_position(pos) 
+        Ok(ImportStatement {
+            path,
+            position: pos,
         })
     }
 
     fn parse_import_path(&mut self) -> Result<ImportPath<'input>, ParseError> {
-        let mut path_components = Vec::new();
-        
-        if self.check_token(&Token::DoubleColon) {
-            // Absolute path: ::java::world::item::ItemStack
-            self.advance();
-            loop {
-                let name = self.current_identifier()?;
-                path_components.push(name);
-                self.advance();
+        let mut segments = Vec::new();
+        let mut is_relative = false;
 
-                if self.check_token(&Token::DoubleColon) {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
-            Ok(ImportPath::Absolute(path_components))
-        } else if self.check_token(&Token::Super) {
-            // Relative path: super::loot::LootCondition
-            self.advance(); // consume super
-            self.consume(&Token::DoubleColon, "::")?;
+        self.skip_whitespace();
+
+        if self.check_token(Token::DoubleColon) {
+            self.advance(); // consume ::
+        } else if self.check_token(Token::Super) {
+            is_relative = true;
+            self.advance();
+            self.consume(Token::DoubleColon, "Expected '::' after 'super'")?;
+        }
+
+        loop {
+            segments.push(self.current_identifier()?);
             
-            loop {
-                let name = self.current_identifier()?;
-                path_components.push(name);
+            if self.check_token(Token::DoubleColon) {
                 self.advance();
-
-                if self.check_token(&Token::DoubleColon) {
-                    self.advance();
-                } else {
-                    break;
-                }
+            } else {
+                break;
             }
-            Ok(ImportPath::Relative(path_components))
+        }
+
+        if is_relative {
+            Ok(ImportPath::Relative(segments))
         } else {
-            // Simple relative path
-            let name = self.current_identifier()?;
-            path_components.push(name);
-            self.advance();
-            Ok(ImportPath::Relative(path_components))
+            Ok(ImportPath::Absolute(segments))
         }
     }
 
     fn parse_declaration(&mut self) -> Result<Option<Declaration<'input>>, ParseError> {
-        let pos = self.current_pos();
-        
-        // Skip any whitespace before parsing annotations
-        self.skip_whitespace();
-        
-        // Parse annotations
         let annotations = self.parse_annotations()?;
-        
-        // Skip whitespace after annotations
+        let pos = self.current_pos();
+
         self.skip_whitespace();
-        
-        match self.current_token()?.token {
-            Token::Struct => {
-                let struct_decl = self.parse_struct_declaration(annotations, pos)?;
-                Ok(Some(Declaration::Struct(struct_decl)))
+        if self.is_at_end() {
+            return Ok(None);
+        }
+
+        let token = self.current_token()?.token.clone();
+        match token {
+            Token::Struct => Ok(Some(Declaration::Struct(
+                self.parse_struct_declaration(annotations, pos)?,
+            ))),
+            Token::Enum => Ok(Some(Declaration::Enum(
+                self.parse_enum_declaration(annotations, pos)?,
+            ))),
+            Token::Type => Ok(Some(Declaration::Type(
+                self.parse_type_declaration(annotations, pos)?,
+            ))),
+            Token::Dispatch => Ok(Some(Declaration::Dispatch(
+                self.parse_dispatch_declaration(annotations, pos)?,
+            ))),
+            _ => {
+                if annotations.is_empty() {
+                    let found = format!("{:?}", self.current_token()?.token);
+                    self.errors
+                        .push(self.syntax_error("declaration keyword", found));
+                    self.synchronize();
+                    Ok(None)
+                } else {
+                    Err(self.syntax_error("declaration keyword", "annotations only"))
+                }
             }
-            Token::Enum => {
-                let enum_decl = self.parse_enum_declaration(annotations, pos)?;
-                Ok(Some(Declaration::Enum(enum_decl)))
-            }
-            Token::Type => {
-                let type_decl = self.parse_type_declaration(annotations, pos)?;
-                Ok(Some(Declaration::Type(type_decl)))
-            }
-            Token::Dispatch => {
-                let dispatch_decl = self.parse_dispatch_declaration(annotations, pos)?;
-                Ok(Some(Declaration::Dispatch(dispatch_decl)))
-            }
-            _ => Ok(None),
         }
     }
 
     fn parse_annotations(&mut self) -> Result<Vec<Annotation<'input>>, ParseError> {
         let mut annotations = Vec::new();
         
-        while self.check_token(&Token::Hash) {
-            let pos = self.current_pos();
-            self.advance(); // consume #
-            self.consume(&Token::LeftBracket, "[")?;
-            
-            let name = self.current_identifier()?;
-            self.advance();
-            
-            let data = if self.check_token(&Token::LeftParen) {
-                // Complex annotation with parameters
-                self.advance(); // consume (
-                let mut params = FxHashMap::default();
+        while let Ok(token) = self.current_token() {
+            if let Token::Annotation(text) = token.token.clone() {
+                let pos = token.position;
+                self.advance();
                 
-                while !self.check_token(&Token::RightParen) {
-                    let key = self.current_identifier()?;
-                    self.advance();
-                    self.consume(&Token::Equals, "=")?;
-                    
-                    let value = match &self.current_token()?.token {
-                        Token::String(s) => *s,
-                        Token::Identifier(i) => *i,
-                        _ => return Err(self.syntax_error("string or identifier", "value")),
-                    };
-                    self.advance();
-                    
-                    params.insert(key, value);
-                    
-                    if self.check_token(&Token::Comma) {
-                        self.advance();
+                // Simple annotation parsing: #[name(key=value)] or #[name=value] or #[name]
+                let annotation_text = text.trim_start_matches("#[").trim_end_matches(']');
+                let (name, data) = if let Some(paren_pos) = annotation_text.find('(') {
+                // Complex: #[name(key=value)]
+                let name = annotation_text[..paren_pos].trim();
+                let params_text = annotation_text[paren_pos + 1..].trim_end_matches(')');
+                
+                let mut map = FxHashMap::default();
+                for param in params_text.split(',') {
+                    if let Some(eq_pos) = param.find('=') {
+                        let key = param[..eq_pos].trim();
+                        let value = param[eq_pos + 1..].trim_matches('"');
+                        map.insert(key, value);
                     }
                 }
-                self.consume(&Token::RightParen, ")")?;
-                AnnotationData::Complex(params)
-            } else if self.check_token(&Token::Equals) {
-                // Simple annotation with value
-                self.advance(); // consume =
-                let value = match &self.current_token()?.token {
-                    Token::String(s) => *s,
-                    _ => return Err(self.syntax_error("string", "annotation value")),
-                };
-                self.advance();
-                AnnotationData::Simple(value)
+                (name, AnnotationData::Complex(map))
+            } else if let Some(eq_pos) = annotation_text.find('=') {
+                // Simple: #[name=value]
+                let name = annotation_text[..eq_pos].trim();
+                let value = annotation_text[eq_pos + 1..].trim_matches('"');
+                (name, AnnotationData::Simple(value))
             } else {
-                // Empty annotation
-                AnnotationData::Empty
+                // Empty: #[name]
+                (annotation_text, AnnotationData::Empty)
             };
-            
-            self.consume(&Token::RightBracket, "]")?;
-            
-            annotations.push(Annotation {
-                name,
-                data,
-                position: self.make_position(pos),
-            });
-            
-            self.skip_whitespace();
-        }
-        
-        Ok(annotations)
-    }
-
-    pub fn parse_struct_declaration(&mut self, annotations: Vec<Annotation<'input>>, pos: SourcePos) -> Result<StructDeclaration<'input>, ParseError> {
-        self.consume(&Token::Struct, "struct")?;
-        self.skip_whitespace();
-        
-        let name = self.current_identifier()?;
-        self.advance();
-        self.skip_whitespace();
-        
-        self.consume(&Token::LeftBrace, "{")?;
-        self.skip_whitespace();
-        
-        let mut fields = Vec::new();
-        while !self.check_token(&Token::RightBrace) {
-            let field = self.parse_field_declaration()?;
-            fields.push(field);
-            
-            if self.check_token(&Token::Comma) {
-                self.advance();
-            }
-            self.skip_whitespace();
-        }
-        
-        self.consume(&Token::RightBrace, "}")?;
-        
-        Ok(StructDeclaration {
-            name,
-            fields,
-            annotations,
-            position: self.make_position(pos),
-        })
-    }
-
-    fn parse_field_declaration(&mut self) -> Result<FieldDeclaration<'input>, ParseError> {
-        let pos = self.current_pos();
-        let annotations = self.parse_annotations()?;
-        
-        // Check for spread expression
-        if self.check_token(&Token::DotDotDot) {
-            self.advance(); // consume ...
-            
-            let namespace = self.current_identifier()?;
-            self.advance();
-            self.consume(&Token::Colon, ":")?;
-            let registry = self.current_identifier()?;
-            self.advance();
-            
-            // Parse optional dynamic key [[type]] or [[%key]]
-            let dynamic_key = if self.check_token(&Token::LeftBracket) {
-                self.advance(); // consume [
-                self.consume(&Token::LeftBracket, "[")?;
                 
-                let reference = if self.check_token(&Token::Percent) {
-                    self.advance(); // consume %
-                    let key = self.current_identifier()?;
-                    self.advance();
-                    DynamicReferenceType::SpecialKey(key)
-                } else {
-                    let field = self.current_identifier()?;
-                    self.advance();
-                    DynamicReferenceType::Field(field)
-                };
-                
-                self.consume(&Token::RightBracket, "]")?;
-                self.consume(&Token::RightBracket, "]")?;
-                
-                Some(DynamicReference {
-                    reference,
-                    position: self.make_position(self.current_pos()),
-                })
-            } else {
-                None
-            };
-            
-            let field_type = TypeExpression::Spread(SpreadExpression {
-                namespace,
-                registry,
-                dynamic_key,
-                position: self.make_position(pos),
-            });
-            
-            return Ok(FieldDeclaration {
-                name: "", // Spread expressions don't have names
-                field_type,
-                optional: false,
-                annotations,
-                position: self.make_position(pos),
-            });
-        }
-        
-        let name = self.current_identifier()?;
-        self.advance();
-        
-        let optional = if self.check_token(&Token::Question) {
-            self.advance();
-            true
-        } else {
-            false
-        };
-        
-        self.consume(&Token::Colon, ":")?;
-        let field_type = self.parse_type_expression()?;
-        
-        Ok(FieldDeclaration {
-            name,
-            field_type,
-            optional,
-            annotations,
-            position: self.make_position(pos),
-        })
-    }
-
-    pub fn parse_type_expression(&mut self) -> Result<TypeExpression<'input>, ParseError> {
-        match &self.current_token()?.token {
-            Token::Identifier(name) => {
-                let name = *name;
-                self.advance();
-                Ok(TypeExpression::Simple(name))
-            }
-            Token::LeftBracket => {
-                // Parse array type or dynamic reference [[%key]]
-                self.advance(); // consume [
-                
-                if self.check_token(&Token::LeftBracket) {
-                    // Dynamic reference [[%key]] or [[type]]
-                    self.advance(); // consume second [
-                    
-                    let reference = if self.check_token(&Token::Percent) {
-                        self.advance(); // consume %
-                        let key = self.current_identifier()?;
-                        self.advance();
-                        DynamicReferenceType::SpecialKey(key)
-                    } else {
-                        let field = self.current_identifier()?;
-                        self.advance();
-                        DynamicReferenceType::Field(field)
-                    };
-                    
-                    self.consume(&Token::RightBracket, "]")?;
-                    self.consume(&Token::RightBracket, "]")?;
-                    
-                    let _dynamic_ref = DynamicReference {
-                        reference,
-                        position: self.make_position(self.current_pos()),
-                    };
-                    
-                    Ok(TypeExpression::Reference(ImportPath::Absolute(vec!["dynamic"])))
-                } else {
-                    // Regular array [ElementType]
-                    let element_type = Box::new(self.parse_type_expression()?);
-                    self.consume(&Token::RightBracket, "]")?;
-                    
-                    Ok(TypeExpression::Array {
-                        element_type,
-                        constraints: None,
-                    })
-                }
-            }
-            Token::DotDotDot => {
-                // Spread expression: ...minecraft:recipe_serializer[[type]]
-                self.advance(); // consume ...
-                
-                let namespace = self.current_identifier()?;
-                self.advance();
-                self.consume(&Token::Colon, ":")?;
-                let registry = self.current_identifier()?;
-                self.advance();
-                
-                let _base_path = format!("{}:{}", namespace, registry);
-                
-                // Parse optional dynamic key [[type]] or [[%key]]
-                let dynamic_key = if self.check_token(&Token::LeftBracket) {
-                    self.advance(); // consume [
-                    self.consume(&Token::LeftBracket, "[")?;
-                    
-                    let reference = if self.check_token(&Token::Percent) {
-                        self.advance(); // consume %
-                        let key = self.current_identifier()?;
-                        self.advance();
-                        DynamicReferenceType::SpecialKey(key)
-                    } else {
-                        let field = self.current_identifier()?;
-                        self.advance();
-                        DynamicReferenceType::Field(field)
-                    };
-                    
-                    self.consume(&Token::RightBracket, "]")?;
-                    self.consume(&Token::RightBracket, "]")?;
-                    
-                    Some(DynamicReference {
-                        reference,
-                        position: self.make_position(self.current_pos()),
-                    })
-                } else {
-                    None
-                };
-                
-                Ok(TypeExpression::Spread(SpreadExpression {
-                    namespace,
-                    registry,
-                    dynamic_key,
-                    position: self.make_position(self.current_pos()),
-                }))
-            }
-            Token::LeftParen => {
-                // Union type: (string | int | boolean)
-                self.advance(); // consume (
-                let mut types = Vec::new();
-                
-                loop {
-                    types.push(self.parse_type_expression()?);
-                    
-                    if self.check_token(&Token::Pipe) {
-                        self.advance(); // consume |
-                    } else {
-                        break;
-                    }
-                }
-                
-                self.consume(&Token::RightParen, ")")?;
-                Ok(TypeExpression::Union(types))
-            }
-            Token::Struct => {
-                // Inline struct
-                self.advance(); // consume struct
-                self.consume(&Token::LeftBrace, "{")?;
-                
-                let mut fields = Vec::new();
-                while !self.check_token(&Token::RightBrace) {
-                    let field = self.parse_field_declaration()?;
-                    fields.push(field);
-                    
-                    if self.check_token(&Token::Comma) {
-                        self.advance();
-                    }
-                    self.skip_whitespace();
-                }
-                
-                self.consume(&Token::RightBrace, "}")?;
-                Ok(TypeExpression::Struct(fields))
-            }
-            _ => {
-                let found = format!("{:?}", self.current_token()?.token);
-                Err(self.syntax_error("type expression", found))
-            }
-        }
-    }
-
-    pub fn parse_enum_declaration(&mut self, annotations: Vec<Annotation<'input>>, pos: SourcePos) -> Result<EnumDeclaration<'input>, ParseError> {
-        self.consume(&Token::Enum, "enum")?;
-        self.skip_whitespace();
-        
-        // Parse optional base type: enum(string) or just enum
-        let base_type = if self.check_token(&Token::LeftParen) {
-            self.advance(); // consume (
-            let base = self.current_identifier()?;
-            self.advance();
-            self.consume(&Token::RightParen, ")")?;
-            Some(base)
-        } else {
-            None
-        };
-        
-        self.skip_whitespace();
-        let name = self.current_identifier()?;
-        self.advance();
-        self.skip_whitespace();
-        
-        self.consume(&Token::LeftBrace, "{")?;
-        self.skip_whitespace();
-        
-        // Parse enum variants
-        let mut variants = Vec::new();
-        while !self.check_token(&Token::RightBrace) {
-            let variant_pos = self.current_pos();
-            let variant_annotations = self.parse_annotations()?;
-            
-            let variant_name = self.current_identifier()?;
-            self.advance();
-            
-            // Parse optional value: = "creative"
-            let value = if self.check_token(&Token::Equals) || self.check_token(&Token::Equal) {
-                self.advance(); // consume = 
-                match &self.current_token()?.token.clone() {
-                    Token::String(s) => {
-                        let s = *s;
-                        self.advance();
-                        Some(LiteralValue::String(s))
-                    }
-                    Token::Number(n) => {
-                        let n = *n;
-                        self.advance();
-                        Some(LiteralValue::Number(n))
-                    }
-                    Token::True => {
-                        self.advance();
-                        Some(LiteralValue::Boolean(true))
-                    }
-                    Token::False => {
-                        self.advance();
-                        Some(LiteralValue::Boolean(false))
-                    }
-                    _ => return Err(self.syntax_error("literal value", "enum variant value")),
-                }
-            } else {
-                None
-            };
-            
-            variants.push(EnumVariant {
-                name: variant_name,
-                value,
-                annotations: variant_annotations,
-                position: self.make_position(variant_pos),
-            });
-            
-            if self.check_token(&Token::Comma) {
-                self.advance();
-            }
-            self.skip_whitespace();
-        }
-        
-        self.consume(&Token::RightBrace, "}")?;
-        
-        Ok(EnumDeclaration {
-            name,
-            base_type,
-            variants,
-            annotations,
-            position: self.make_position(pos),
-        })
-    }
-
-    pub fn parse_type_declaration(&mut self, annotations: Vec<Annotation<'input>>, pos: SourcePos) -> Result<TypeDeclaration<'input>, ParseError> {
-        self.consume(&Token::Type, "type")?;
-        
-        let name = self.current_identifier()?;
-        self.advance();
-        
-        // Accept both Equal and Equals for compatibility
-        if self.check_token(&Token::Equal) {
-            self.advance();
-        } else if self.check_token(&Token::Equals) {
-            self.advance();
-        } else {
-            return Err(self.syntax_error("=", "type alias assignment"));
-        }
-        
-        let type_expr = self.parse_type_expression()?;
-        
-        Ok(TypeDeclaration {
-            name,
-            type_expr,
-            annotations,
-            position: self.make_position(pos),
-        })
-    }
-
-    pub fn parse_dispatch_declaration(&mut self, annotations: Vec<Annotation<'input>>, pos: SourcePos) -> Result<DispatchDeclaration<'input>, ParseError> {
-        self.consume(&Token::Dispatch, "dispatch")?;
-        
-        // Parse dispatch source: minecraft:resource[recipe] or minecraft:recipe_serializer[crafting_shaped]
-        let _namespace = self.current_identifier()?; // minecraft - kept for future use
-        self.advance();
-        self.consume(&Token::Colon, ":")?;
-        let registry = self.current_identifier()?; // resource or recipe_serializer
-        self.advance();
-        
-        self.consume(&Token::LeftBracket, "[")?;
-        
-        // Parse targets: [recipe], [smelting,blasting,smoking], [%unknown]
-        let mut targets = Vec::new();
-        loop {
-            match &self.current_token()?.token {
-                Token::Identifier(target) => {
-                    targets.push(DispatchTarget::Specific(target));
-                    self.advance();
-                }
-                Token::Percent => {
-                    self.advance(); // consume %
-                    let _unknown_type = self.current_identifier()?; // "unknown" or "key" - kept for future use
-                    self.advance();
-                    targets.push(DispatchTarget::Unknown);
-                }
-                _ => break,
-            }
-            
-            if self.check_token(&Token::Comma) {
-                self.advance();
+                annotations.push(Annotation {
+                    name,
+                    data,
+                    position: pos,
+                });
             } else {
                 break;
             }
         }
         
-        self.consume(&Token::RightBracket, "]")?;
+        Ok(annotations)
+    }
+
+    pub fn parse_struct_declaration(
+        &mut self,
+        annotations: Vec<Annotation<'input>>,
+        pos: Position,
+    ) -> Result<StructDeclaration<'input>, ParseError> {
+        self.consume(Token::Struct, "Expected 'struct'")?;
+        let name = self.current_identifier()?;
         
-        // Parse optional dynamic key: [[type]] or [[%key]]
-        let key = if self.check_token(&Token::LeftBracket) {
-            self.advance(); // consume [
-            self.consume(&Token::LeftBracket, "[")?;
+        self.consume(Token::LeftBrace, "Expected '{' to start struct body")?;
+        let mut members = Vec::new();
+        self.skip_whitespace();
+        while !self.check_token(Token::RightBrace) && !self.is_at_end() {
+            members.push(self.parse_struct_member()?);
+            self.skip_whitespace();
+        }
+        self.consume(Token::RightBrace, "Expected '}' to end struct body")?;
+
+        Ok(StructDeclaration {
+            name,
+            members,
+            annotations,
+            position: pos,
+        })
+    }
+
+    fn parse_struct_member(&mut self) -> Result<StructMember<'input>, ParseError> {
+        self.skip_whitespace(); // Skip any whitespace before parsing
+        
+        // Parse annotations first (they can apply to both spreads and fields)
+        let annotations = self.parse_annotations()?;
+        
+        // CORRECTION: Skip whitespace after parsing annotations to properly position cursor
+        self.skip_whitespace();
+        
+        // Check if it's a spread operator
+        if self.check_token(Token::DotDotDot) {
+            self.advance(); // consume ...
             
-            let key_name = if self.check_token(&Token::Percent) {
-                self.advance(); // consume %
-                let key = self.current_identifier()?;
-                self.advance();
-                key
+            // The spread can be followed by:
+            // 1. A type expression like `struct { field: type }`
+            // 2. A namespace::identifier like `super::ItemBase` or `minecraft::item`
+            
+            if self.check_token(Token::Struct) {
+                // This is a spread of a struct type: ...struct { ... }
+                // Parse the struct directly instead of calling parse_type_expression
+                // to avoid double-parsing annotations
+                self.advance(); // consume 'struct'
+                self.consume(Token::LeftBrace, "Expected '{' after 'struct'")?;
+                
+                let mut members = Vec::new();
+                self.skip_whitespace();
+                
+                while !self.check_token(Token::RightBrace) && !self.is_at_end() {
+                    let member = self.parse_struct_member()?;
+                    members.push(member);
+                    self.skip_whitespace();
+                }
+                
+                self.consume(Token::RightBrace, "Expected '}' to end struct body")?;
+                
+                // Skip any trailing comma
+                if self.check_token(Token::Comma) {
+                    self.advance();
+                }
+                
+                // Create a struct type expression and return it as a spread
+                // For now we treat spread structs as simple spreads
+                return Ok(StructMember::Spread(SpreadExpression {
+                    namespace: "",  // No namespace for inline structs
+                    registry: "",   // No registry for inline structs  
+                    dynamic_key: None,
+                    annotations,
+                    position: self.current_pos(),
+                }));
             } else {
-                let key = self.current_identifier()?;
+                // Smart parsing: detect different spread patterns
+                let (namespace, registry) = if self.check_token(Token::Super) || self.check_token(Token::DoubleColon) {
+                    // Handle import path: super::ItemBase or ::absolute::path
+                    let namespace = if self.check_token(Token::Super) {
+                        self.advance(); // consume super
+                        self.consume(Token::DoubleColon, "Expected '::' after 'super'")?;
+                        "super"
+                    } else if self.check_token(Token::DoubleColon) {
+                        self.advance(); // consume ::
+                        ""
+                    } else {
+                        ""
+                    };
+                    
+                    let registry = self.current_identifier()?;
+                    (namespace, registry)
+                } else {
+                    // Check if it's a namespace:registry pattern or generic type
+                    let name = self.current_identifier()?;
+                    
+                    if self.check_token(Token::Colon) {
+                        // Pattern: minecraft:test_instance[[type]]
+                        self.advance(); // consume :
+                        let registry = self.current_identifier()?;
+                        (name, registry)
+                    } else if self.check_token(Token::Less) {
+                        // Pattern: Layer<T> - parse as generic type
+                        self.current = self.current.saturating_sub(1); // Back up to reparse
+                        let spread_type = self.parse_single_type()?;
+                        
+                        match spread_type {
+                            TypeExpression::Generic { name, .. } => (name, ""),
+                            TypeExpression::Simple(name) => (name, ""),
+                            _ => ("", "")
+                        }
+                    } else {
+                        // Simple name
+                        (name, "")
+                    }
+                };
+                
+                // Handle dynamic reference like [[type]] or [[%key]]
+                let dynamic_key = if self.check_token(Token::LeftBracket) && 
+                   self.tokens.get(self.current + 1).map(|t| &t.token) == Some(&Token::LeftBracket) {
+                    self.advance(); // consume first [
+                    self.advance(); // consume second [
+                    
+                    // Allow % patterns and identifiers in dynamic references
+                    let key = self.current_identifier_or_special()?;
+                    
+                    self.consume(Token::RightBracket, "Expected ']' in dynamic reference")?;
+                    self.consume(Token::RightBracket, "Expected ']]' in dynamic reference")?;
+                    
+                    Some(DynamicReference {
+                        reference: DynamicReferenceType::Field(key),
+                        position: self.current_pos(),
+                    })
+                } else {
+                    None
+                };
+                
+                // Skip any trailing comma
+                if self.check_token(Token::Comma) {
+                    self.advance();
+                }
+                
+                Ok(StructMember::Spread(SpreadExpression {
+                    namespace,
+                    registry,
+                    dynamic_key,
+                    annotations,
+                    position: self.current_pos(),
+                }))
+            }
+        } else if self.check_token(Token::LeftBracket) {
+            // Parse dynamic field: [#[id="mob_effect"] string]: MobEffectPredicate
+            let pos = self.current_pos();
+            self.advance(); // consume [
+            
+            // Parse the key type (e.g., #[id="mob_effect"] string)
+            let key_type = self.parse_type_expression()?;
+            
+            self.consume(Token::RightBracket, "Expected ']' after dynamic field key type")?;
+            
+            let optional = if self.check_token(Token::Question) {
                 self.advance();
-                key
+                true
+            } else {
+                false
+            };
+
+            self.consume(Token::Colon, "Expected ':' after dynamic field key")?;
+
+            // Parse value type
+            let value_type = self.parse_type_expression()?;
+
+            if self.check_token(Token::Comma) {
+                self.advance();
+            }
+
+            Ok(StructMember::DynamicField(DynamicFieldDeclaration {
+                key_type,
+                value_type,
+                optional,
+                annotations,
+                position: pos,
+            }))
+        } else {
+            // Parse as regular field - but we already have annotations, so pass them
+            let pos = self.current_pos();
+            let name = self.current_identifier()?;
+            
+            let optional = if self.check_token(Token::Question) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+
+            self.consume(Token::Colon, "Expected ':' after field name")?;
+
+            // Parse type annotations (like #[id(...)] before the type)
+            let type_annotations = self.parse_annotations()?;
+            
+            let field_type = self.parse_type_expression()?;
+
+            if self.check_token(Token::Comma) {
+                self.advance();
+            }
+
+            // Combine field annotations and type annotations
+            let mut all_annotations = annotations;
+            all_annotations.extend(type_annotations);
+
+            Ok(StructMember::Field(FieldDeclaration {
+                name,
+                field_type,
+                optional,
+                annotations: all_annotations,
+                position: pos,
+            }))
+        }
+    }
+
+    #[allow(dead_code)]
+    fn parse_field_declaration(&mut self) -> Result<FieldDeclaration<'input>, ParseError> {
+        let field_annotations = self.parse_annotations()?;
+        let pos = self.current_pos();
+        let name = self.current_identifier()?;
+        
+        let optional = if self.check_token(Token::Question) {
+            self.advance();
+            true
+        } else {
+            false
+        };
+
+        self.consume(Token::Colon, "Expected ':' after field name")?;
+
+        // Parse type annotations (like #[id(...)] before the type)
+        let type_annotations = self.parse_annotations()?;
+        
+        let field_type = self.parse_type_expression()?;
+
+        if self.check_token(Token::Comma) {
+            self.advance();
+        }
+
+        // Combine field annotations and type annotations
+        let mut all_annotations = field_annotations;
+        all_annotations.extend(type_annotations);
+
+        Ok(FieldDeclaration {
+            name,
+            field_type,
+            optional,
+            annotations: all_annotations,
+            position: pos,
+        })
+    }
+
+    pub fn parse_type_expression(&mut self) -> Result<TypeExpression<'input>, ParseError> {
+        let mut type_expr = self.parse_single_type()?;
+
+        // Check for constraints on simple types: int @ 1..10
+        if self.check_token(Token::At) {
+            self.advance(); // consume @
+            let _constraints = self.parse_array_constraints()?;
+            // For now, we ignore constraints on simple types and just return the type
+            // In a full implementation, we'd extend TypeExpression to support constraints
+        }
+
+        // Check for array type with optional constraints: [element_type] @ 1..10
+        if self.check_token(Token::LeftBracket) {
+            self.advance(); // consume [
+            self.consume(Token::RightBracket, "Expected ']' after type in array declaration")?;
+            
+            // Parse optional constraints: @ 1..10 or @ 5.. or @ ..5
+            let constraints = if self.check_token(Token::At) {
+                self.advance(); // consume @
+                self.parse_array_constraints()?
+            } else {
+                None
+            };
+
+            type_expr = TypeExpression::Array {
+                element_type: Box::new(type_expr),
+                constraints,
+            };
+        }
+
+        // Check for union type
+        if self.check_token(Token::Pipe) {
+            self.advance();
+            let mut types = vec![type_expr];
+
+            loop {
+                // Skip optional trailing pipe before closing paren/brace
+                self.skip_whitespace();
+                if self.check_token(Token::RightParen) || self.check_token(Token::RightBrace) || 
+                   self.check_token(Token::Comma) || self.is_at_end() {
+                    break;
+                }
+                
+                types.push(self.parse_single_type()?);
+                self.skip_whitespace();
+                if self.check_token(Token::Pipe) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            type_expr = TypeExpression::Union(types);
+        }
+
+        Ok(type_expr)
+    }
+
+    /// Parse array constraints like 1..10, 5.., ..5, or just 5
+    fn parse_array_constraints(&mut self) -> Result<Option<ArrayConstraints>, ParseError> {
+        let token = self.current_token()?.token.clone();
+        
+        match token {
+            Token::Number(num) => {
+                self.advance();
+                
+                // Check if it's a range: 5..10 or 5..
+                if self.check_token(Token::DotDot) {
+                    self.advance(); // consume ..
+                    
+                    let max = if !self.is_at_end() {
+                        if let Ok(next_token) = self.current_token() {
+                            if let Token::Number(n) = &next_token.token {
+                                let num = *n;
+                                self.advance();
+                                Some(num as u32)
+                            } else {
+                                None // No max specified: 5..
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    
+                    Ok(Some(ArrayConstraints {
+                        min: Some(num as u32),
+                        max,
+                    }))
+                } else {
+                    // Just a single number: exactly this count
+                    Ok(Some(ArrayConstraints {
+                        min: Some(num as u32),
+                        max: Some(num as u32),
+                    }))
+                }
+            }
+            Token::DotDot => {
+                // Range starting from beginning: ..10
+                self.advance(); // consume ..
+                
+                if !self.is_at_end() {
+                    if let Ok(next_token) = self.current_token() {
+                        if let Token::Number(n) = &next_token.token {
+                            let num = *n;
+                            self.advance();
+                            Ok(Some(ArrayConstraints {
+                                min: None,
+                                max: Some(num as u32),
+                            }))
+                        } else {
+                            Err(self.syntax_error("number after '..'", format!("{:?}", next_token.token)))
+                        }
+                    } else {
+                        Err(self.syntax_error("number after '..'", "end of input"))
+                    }
+                } else {
+                    Err(self.syntax_error("number after '..'", "end of input"))
+                }
+            }
+            _ => {
+                // No valid constraint found
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn parse_enum_declaration(
+        &mut self,
+        annotations: Vec<Annotation<'input>>,
+        pos: Position,
+    ) -> Result<EnumDeclaration<'input>, ParseError> {
+        self.consume(Token::Enum, "Expected 'enum'")?;
+        
+        // Support both syntaxes: enum(string) Test and enum Test: string
+        let (base_type, name) = if self.check_token(Token::LeftParen) {
+            // enum(string) Test
+            self.advance();
+            let bt = self.current_identifier()?;
+            self.consume(Token::RightParen, "Expected ')' after enum base type")?;
+            let name = self.current_identifier()?;
+            (Some(bt), name)
+        } else {
+            // enum Test: string or enum Test
+            let name = self.current_identifier()?;
+            let base_type = if self.check_token(Token::Colon) {
+                self.advance();
+                Some(self.current_identifier()?)
+            } else {
+                None
+            };
+            (base_type, name)
+        };
+        
+        self.consume(Token::LeftBrace, "Expected '{' to start enum body")?;
+        let mut variants = Vec::new();
+        self.skip_whitespace();
+        while !self.check_token(Token::RightBrace) && !self.is_at_end() {
+            let var_annotations = self.parse_annotations()?;
+            let var_pos = self.current_pos();
+            let var_name = self.current_identifier()?;
+            
+            let value = if self.check_token(Token::Equal) {
+                self.advance();
+                let token = self.current_token()?.token.clone();
+                let lit = match token {
+                    Token::String(s) => LiteralValue::String(s),
+                    Token::Number(n) => LiteralValue::Number(n),
+                    Token::True => LiteralValue::Boolean(true),
+                    Token::False => LiteralValue::Boolean(false),
+                    _ => {
+                        return Err(self
+                            .syntax_error("literal", "other"))
+                    }
+                };
+                self.advance();
+                Some(lit)
+            } else {
+                None
+            };
+
+            variants.push(EnumVariant {
+                name: var_name,
+                value,
+                annotations: var_annotations,
+                position: var_pos,
+            });
+
+            if self.check_token(Token::Comma) {
+                self.advance();
+            }
+            self.skip_whitespace();
+        }
+        self.consume(Token::RightBrace, "Expected '}' to end enum body")?;
+
+        Ok(EnumDeclaration {
+            name,
+            base_type,
+            variants,
+            annotations,
+            position: pos,
+        })
+    }
+
+    pub fn parse_type_declaration(
+        &mut self,
+        annotations: Vec<Annotation<'input>>,
+        pos: Position,
+    ) -> Result<TypeDeclaration<'input>, ParseError> {
+        self.consume(Token::Type, "Expected 'type'")?;
+        let name = self.current_identifier()?;
+        
+        // Parse generic parameters if present: <T, U, V>
+        let type_params = if self.check_token(Token::Less) {
+            self.advance(); // consume <
+            let mut params = Vec::new();
+            
+            loop {
+                let param = self.current_identifier()?;
+                params.push(param);
+                
+                if self.check_token(Token::Comma) {
+                    self.advance(); // consume comma
+                    self.skip_whitespace(); // skip space after comma
+                } else {
+                    break;
+                }
+            }
+            
+            self.consume(Token::Greater, "Expected '>' after generic parameters")?;
+            params
+        } else {
+            Vec::new()
+        };
+        
+        self.consume(Token::Equal, "Expected '=' after type name")?;
+
+        let type_expr = self.parse_type_expression()?;
+
+        Ok(TypeDeclaration {
+            name,
+            type_params,
+            type_expr,
+            annotations,
+            position: pos,
+        })
+    }
+
+    pub fn parse_dispatch_declaration(
+        &mut self,
+        annotations: Vec<Annotation<'input>>,
+        pos: Position,
+    ) -> Result<DispatchDeclaration<'input>, ParseError> {
+        self.consume(Token::Dispatch, "Expected 'dispatch'")?;
+        
+        // Parse registry path (e.g., "minecraft:resource[test_recipe]")
+        let registry = self.current_identifier()?;
+        self.consume(Token::Colon, "Expected ':'")?;
+        let _path = self.current_identifier()?;
+        
+        let key = if self.check_token(Token::LeftBracket) {
+            self.advance();
+            self.skip_whitespace(); // Skip whitespace after opening bracket
+            
+            // Parse key name - can be identifier, string literal, or %pattern
+            let key_name = match &self.current_token()?.token {
+                Token::Identifier(name) => {
+                    let result = *name;
+                    self.advance();
+                    result
+                }
+                Token::String(value) => {
+                    let result = *value;
+                    self.advance();
+                    result
+                }
+                Token::Percent => {
+                    // Handle %unknown, %key patterns
+                    self.current_identifier_or_special()?
+                }
+                _ => return Err(self.syntax_error("identifier, string, or % pattern", format!("{:?}", self.current_token()?.token)))
             };
             
-            self.consume(&Token::RightBracket, "]")?;
-            self.consume(&Token::RightBracket, "]")?;
+            // Skip additional targets for now (multiple dispatch keys)
+            while self.check_token(Token::Comma) {
+                self.advance();
+                self.skip_whitespace(); // Skip whitespace and newlines after comma
+                match &self.current_token()?.token {
+                    Token::Identifier(_) | Token::String(_) => {
+                        self.advance();
+                        self.skip_whitespace(); // Skip whitespace after identifier
+                    }
+                    Token::Percent => {
+                        // Handle % patterns in multiple targets
+                        self.current_identifier_or_special()?;
+                        self.skip_whitespace();
+                    }
+                    _ => return Err(self.syntax_error("identifier, string, or % pattern", format!("{:?}", self.current_token()?.token)))
+                }
+            }
+            
+            self.skip_whitespace(); // Skip whitespace before closing bracket
+            self.consume(Token::RightBracket, "Expected ']'")?;
             Some(key_name)
         } else {
             None
         };
+
+        self.consume(Token::To, "Expected 'to'")?;
         
-        self.consume(&Token::To, "to")?;
+        // Parse the target type expression
         let target_type = self.parse_type_expression()?;
-        
-        let source = DispatchSource {
-            registry,
-            key,
-            position: self.make_position(pos),
-        };
-        
+
         Ok(DispatchDeclaration {
-            source,
-            targets,
+            source: DispatchSource {
+                registry,
+                key,
+                position: pos,
+            },
+            targets: vec![], // TODO: parse targets
             target_type,
             annotations,
-            position: self.make_position(pos),
+            position: pos,
         })
     }
-    
-    // ===== WRAPPER METHODS FOR TESTS =====
-    
-    /// Wrapper method for tests - parse struct with empty annotations
-    pub fn parse_struct(&mut self, annotations: Vec<Annotation<'input>>) -> Result<StructDeclaration<'input>, ParseError> {
-        let pos = self.current_pos();
-        self.parse_struct_declaration(annotations, pos)
-    }
-    
-    /// Wrapper method for tests - parse dispatch with empty annotations  
-    pub fn parse_dispatch(&mut self, annotations: Vec<Annotation<'input>>) -> Result<DispatchDeclaration<'input>, ParseError> {
-        let pos = self.current_pos();
-        self.parse_dispatch_declaration(annotations, pos)
-    }
-    
-    /// Wrapper method for tests - parse enum with empty annotations
-    pub fn parse_enum(&mut self, annotations: Vec<Annotation<'input>>) -> Result<EnumDeclaration<'input>, ParseError> {
-        let pos = self.current_pos();
-        self.parse_enum_declaration(annotations, pos)
-    }
-    
-    /// Wrapper method for tests - parse type alias with empty annotations
-    pub fn parse_type_alias(&mut self, annotations: Vec<Annotation<'input>>) -> Result<TypeDeclaration<'input>, ParseError> {
-        let pos = self.current_pos();
-        self.parse_type_declaration(annotations, pos)
-    }
-    
-    /// Wrapper method for tests - parse single type expression
+
     pub fn parse_single_type(&mut self) -> Result<TypeExpression<'input>, ParseError> {
-        self.parse_type_expression()
+        self.skip_whitespace();
+        
+        // Parse annotations before the type (for cases like #[regex_pattern] string)
+        let _type_annotations = self.parse_annotations()?;
+        
+        // CRITICAL FIX: Skip whitespace/newlines after annotations
+        self.skip_whitespace();
+        
+        match &self.current_token()?.token {
+            Token::Identifier(name) => {
+                let type_name = *name;
+                self.advance();
+                
+                // Check for namespace reference: mcdoc:block_states
+                if self.check_token(Token::Colon) {
+                    self.advance(); // consume :
+                    let registry = self.current_identifier()?;
+                    
+                    // Check for dynamic reference: [[block]] or [[%key]]
+                    if self.check_token(Token::LeftBracket) && 
+                       self.tokens.get(self.current + 1).map(|t| &t.token) == Some(&Token::LeftBracket) {
+                        self.advance(); // consume first [
+                        self.advance(); // consume second [
+                        
+                        // Allow % patterns in dynamic references
+                        let key = self.current_identifier_or_special()?;
+                        
+                        self.consume(Token::RightBracket, "Expected ']' in dynamic reference")?;
+                        self.consume(Token::RightBracket, "Expected ']]' in dynamic reference")?;
+                        
+                        Ok(TypeExpression::Spread(SpreadExpression {
+                            namespace: type_name,
+                            registry,
+                            dynamic_key: Some(DynamicReference {
+                                reference: DynamicReferenceType::Field(key),
+                                position: self.current_pos(),
+                            }),
+                            annotations: Vec::new(),
+                            position: self.current_pos(),
+                        }))
+                    }
+                    // Check for simple dispatch reference: minecraft:block_entity[moving_piston]
+                    else if self.check_token(Token::LeftBracket) {
+                        self.advance(); // consume [
+                        let key = self.current_identifier()?;
+                        self.consume(Token::RightBracket, "Expected ']' in dispatch reference")?;
+                        
+                        // This is a dispatch reference, return as simple reference with the key
+                        Ok(TypeExpression::Reference(ImportPath::Absolute(vec![type_name, registry, key])))
+                    } else {
+                        // Simple namespace reference
+                        Ok(TypeExpression::Reference(ImportPath::Absolute(vec![type_name, registry])))
+                    }
+                }
+                // Check for generic type: Map<string, int>
+                else if self.check_token(Token::Less) {
+                    self.advance(); // consume <
+                    let mut type_args = Vec::new();
+                    
+                    loop {
+                        type_args.push(self.parse_single_type()?);
+                        
+                        if self.check_token(Token::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    self.consume(Token::Greater, "Expected '>' after generic arguments")?;
+                    
+                    Ok(TypeExpression::Generic {
+                        name: type_name,
+                        type_args,
+                    })
+                } else {
+                    // Handle simple type with potential array constraints: int[] @ 4
+                    let mut type_expr = TypeExpression::Simple(type_name);
+                    
+                    // Check for array type with optional constraints: [element_type] @ 1..10
+                    if self.check_token(Token::LeftBracket) {
+                        self.advance(); // consume [
+                        self.consume(Token::RightBracket, "Expected ']' after type in array declaration")?;
+                        
+                        // Parse optional constraints: @ 1..10 or @ 5.. or @ ..5
+                        let constraints = if self.check_token(Token::At) {
+                            self.advance(); // consume @
+                            self.parse_array_constraints()?
+                        } else {
+                            None
+                        };
+
+                        type_expr = TypeExpression::Array {
+                            element_type: Box::new(type_expr),
+                            constraints,
+                        };
+                    }
+                    
+                    Ok(type_expr)
+                }
+            }
+            Token::DotDotDot => {
+                // Spread operator: ...minecraft:item
+                self.advance(); // consume ...
+                let namespace = self.current_identifier()?;
+                self.consume(Token::Colon, "Expected ':' after namespace in spread")?;
+                let registry = self.current_identifier()?;
+                
+                Ok(TypeExpression::Spread(SpreadExpression {
+                    namespace,
+                    registry,
+                    dynamic_key: None,
+                    annotations: Vec::new(), // No annotations in type context
+                    position: self.current_pos(),
+                }))
+            }
+            Token::LeftBracket => {
+                // Array type [element_type] @ constraints? ou [element_type @ internal_constraints] @ external_constraints?
+                self.advance(); // consume [
+                let mut element_type = self.parse_single_type()?;
+                
+                // Gérer les contraintes internes à l'élément : [float @ -80..80]
+                if self.check_token(Token::At) {
+                    self.advance(); // consume @
+                    let internal_constraints = self.parse_type_constraints()?;
+                    
+                    if let Some(constraints) = internal_constraints {
+                        element_type = TypeExpression::Constrained {
+                            base_type: Box::new(element_type),
+                            constraints,
+                        };
+                    }
+                }
+                
+                self.consume(Token::RightBracket, "Expected ']' after array element type")?;
+                
+                // Parse optional external constraints: @ 1..10 or @ 5.. or @ ..5  
+                let constraints = if self.check_token(Token::At) {
+                    self.advance(); // consume @
+                    self.parse_array_constraints()?
+                } else {
+                    None
+                };
+                
+                Ok(TypeExpression::Array {
+                    element_type: Box::new(element_type),
+                    constraints,
+                })
+            }
+            Token::Struct => {
+                self.advance(); // consume 'struct'
+                
+                // Check if there's a struct name or immediate {
+                if let Ok(token) = self.current_token() {
+                    match &token.token {
+                        Token::Identifier(name) => {
+                            // Named struct: struct TestRecipe { ... }
+                            let _struct_name = *name;
+                            self.advance(); // consume struct name
+                            self.consume(Token::LeftBrace, "Expected '{' after struct name")?;
+                            
+                            let mut members = Vec::new();
+                            self.skip_whitespace();
+                            
+                            while !self.check_token(Token::RightBrace) && !self.is_at_end() {
+                                let member = self.parse_struct_member()?;
+                                members.push(member);
+                                self.skip_whitespace();
+                            }
+                            
+                            self.consume(Token::RightBrace, "Expected '}' to end struct body")?;
+                            // For now, treat named struct same as anonymous struct
+                            Ok(TypeExpression::Struct(members))
+                        }
+                        Token::LeftBrace => {
+                            // Anonymous struct: struct { ... }
+                            self.consume(Token::LeftBrace, "Expected '{' after 'struct'")?;
+                            
+                            let mut members = Vec::new();
+                            self.skip_whitespace();
+                            
+                            while !self.check_token(Token::RightBrace) && !self.is_at_end() {
+                                let member = self.parse_struct_member()?;
+                                members.push(member);
+                                self.skip_whitespace();
+                            }
+                            
+                            self.consume(Token::RightBrace, "Expected '}' to end struct body")?;
+                            Ok(TypeExpression::Struct(members))
+                        }
+                        _ => Err(self.syntax_error("struct name or '{'", format!("{:?}", token.token)))
+                    }
+                } else {
+                    Err(self.syntax_error("struct body", "end of input"))
+                }
+            }
+            Token::LeftParen => {
+                // Parenthesized type expression: (type1 | type2)
+                self.advance(); // consume (
+                let type_expr = self.parse_type_expression()?; // Parse the inner type expression
+                self.consume(Token::RightParen, "Expected ')' after parenthesized type")?;
+                Ok(type_expr)
+            }
+            Token::String(s) => {
+                // String literal type constraint: #[id="test"] "literal_value"
+                let value = *s;
+                self.advance();
+                Ok(TypeExpression::Literal(LiteralValue::String(value)))
+            }
+            Token::Number(n) => {
+                // Number literal type constraint: #[id="test"] 42
+                let value = *n;
+                self.advance();
+                Ok(TypeExpression::Literal(LiteralValue::Number(value)))
+            }
+            Token::True => {
+                // Boolean literal type constraint: #[id="test"] true
+                self.advance();
+                Ok(TypeExpression::Literal(LiteralValue::Boolean(true)))
+            }
+            Token::False => {
+                // Boolean literal type constraint: #[id="test"] false
+                self.advance();
+                Ok(TypeExpression::Literal(LiteralValue::Boolean(false)))
+            }
+            _ => Err(self.syntax_error("type", format!("{:?}", self.current_token()?.token)))
+        }
+    }
+
+    /// Parse type constraints like @ -80..80, @ 5.., @ ..5, or @ 5
+    fn parse_type_constraints(&mut self) -> Result<Option<TypeConstraints>, ParseError> {
+        let token = self.current_token()?.token.clone();
+        
+        match token {
+            Token::Number(num) => {
+                self.advance();
+                
+                // Check if it's a range: -80..80 or 5..
+                if self.check_token(Token::DotDot) {
+                    self.advance(); // consume ..
+                    
+                                         let max = if !self.is_at_end() {
+                         if let Ok(next_token) = self.current_token() {
+                             if let Token::Number(n) = &next_token.token {
+                                 let num = *n;
+                                 self.advance();
+                                 Some(num)
+                             } else {
+                                 None // No max specified: 5..
+                             }
+                         } else {
+                             None
+                         }
+                     } else {
+                         None
+                     };
+                    
+                    Ok(Some(TypeConstraints {
+                        min: Some(num),
+                        max,
+                    }))
+                } else {
+                    // Just a single number: exactly this value
+                    Ok(Some(TypeConstraints {
+                        min: Some(num),
+                        max: Some(num),
+                    }))
+                }
+            }
+            Token::DotDot => {
+                // Range starting from beginning: ..80
+                self.advance(); // consume ..
+                
+                if !self.is_at_end() {
+                    if let Ok(next_token) = self.current_token() {
+                        if let Token::Number(n) = &next_token.token {
+                            let num = *n;
+                            self.advance();
+                            Ok(Some(TypeConstraints {
+                                min: None,
+                                max: Some(num),
+                            }))
+                        } else {
+                            Err(self.syntax_error("number after '..'", format!("{:?}", next_token.token)))
+                        }
+                    } else {
+                        Err(self.syntax_error("number after '..'", "end of input"))
+                    }
+                } else {
+                    Err(self.syntax_error("number after '..'", "end of input"))
+                }
+            }
+            _ => {
+                // No valid constraint found
+                Ok(None)
+            }
+        }
     }
 } 

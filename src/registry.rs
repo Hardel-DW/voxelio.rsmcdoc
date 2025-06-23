@@ -3,11 +3,10 @@
 use crate::RegistryDependency;
 use crate::error::ParseError;
 use rustc_hash::FxHashMap;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 /// Minecraft registry with its entries
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Registry {
     pub name: String,
     pub entries: HashSet<String>,

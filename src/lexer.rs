@@ -49,7 +49,7 @@ pub enum Token<'input> {
 }
 
 /// Position in the source file
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Position {
     pub line: u32,
     pub column: u32,
@@ -175,21 +175,35 @@ impl<'input> Lexer<'input> {
         let _start_pos = self.current_pos;
         let start_offset = self.current_pos.offset;
         
-        while let Some(ch) = self.current_char {
-            if ch.is_ascii_digit() {
-                self.advance();
-            } else {
-                break;
-            }
-        }
-        
-        if self.current_char == Some('.') && self.peek().map_or(false, |c| c.is_ascii_digit()) {
-            self.advance();
+        // Handle numbers starting with decimal point: .5
+        if self.current_char == Some('.') && self.peek().is_some_and(|c| c.is_ascii_digit()) {
+            self.advance(); // consume '.'
             while let Some(ch) = self.current_char {
                 if ch.is_ascii_digit() {
                     self.advance();
                 } else {
                     break;
+                }
+            }
+        } else {
+            // Read integer part
+            while let Some(ch) = self.current_char {
+                if ch.is_ascii_digit() {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            
+            // Read decimal part if present
+            if self.current_char == Some('.') && self.peek().is_some_and(|c| c.is_ascii_digit()) {
+                self.advance();
+                while let Some(ch) = self.current_char {
+                    if ch.is_ascii_digit() {
+                        self.advance();
+                    } else {
+                        break;
+                    }
                 }
             }
         }
@@ -333,6 +347,19 @@ impl<'input> Lexer<'input> {
             }
             Some('"') | Some('\'') => {
                 Token::String(self.read_string()?)
+            }
+            Some('-') => {
+                // Handle negative numbers: -42, -3.14, -.5
+                if self.peek().is_some_and(|c| c.is_ascii_digit() || c == '.') {
+                    self.advance(); // consume '-'
+                    let number = self.read_number()?;
+                    Token::Number(-number)
+                } else {
+                    return Err(ParseError::lexer(
+                        format!("Unexpected character: '{}'", '-'),
+                        crate::error::SourcePos::new(pos.line, pos.column)
+                    ));
+                }
             }
             Some(ch) if ch.is_ascii_digit() => {
                 Token::Number(self.read_number()?)

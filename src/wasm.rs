@@ -5,10 +5,7 @@
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "wasm")]
-use crate::validator::McDocValidator as InnerValidator;
-
-#[cfg(feature = "wasm")]
-use crate::types::DatapackResult;
+use crate::validator::DatapackValidator as InnerValidator;
 
 #[cfg(feature = "wasm")]
 use std::collections::HashMap;
@@ -25,116 +22,99 @@ pub fn main() {
     console_error_panic_hook::set_once();
 }
 
-/// Main McDocValidator for WASM - EXACTLY matches TypeScript interface
+/// Main DatapackValidator for WASM - EXACTLY matches TypeScript interface
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
-pub struct McDocValidator {
+pub struct DatapackValidator {
     // Use Box to avoid lifetime issues in WASM
     inner: Box<InnerValidator<'static>>,
 }
 
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
-impl McDocValidator {
-    /// Create a new MCDOC validator instance
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Result<McDocValidator, JsValue> {
-        Ok(McDocValidator {
-            inner: Box::new(InnerValidator::new()),
-        })
-    }
-
-    /// Load MCDOC files (METHOD 1) - Simplified for WASM
+impl DatapackValidator {
+    /// Initialisation with registries, MCDOC, and version.
     #[wasm_bindgen]
-    pub fn load_mcdoc_files(&mut self, files: JsValue) -> Result<(), JsValue> {
-        let _files_map: HashMap<String, String> = serde_wasm_bindgen::from_value(files)
-            .map_err(|e| to_js_error("Invalid files format", e))?;
-        
-        // For now, we'll implement a simplified version
-        // Full MCDOC parsing will be implemented incrementally
-        // This matches the production-ready approach from the spec
-        
-        Ok(())
-    }
+    pub fn init(registries: JsValue, mcdoc_files: JsValue, version: String) -> Result<DatapackValidator, JsValue> {
+        let mut inner_validator = InnerValidator::new();
 
-    /// Load registries data (METHOD 2)
-    #[wasm_bindgen]
-    pub fn load_registries(&mut self, registries: JsValue, version: &str) -> Result<(), JsValue> {
+        // 1. Charger les registries
         let registries_map: HashMap<String, serde_json::Value> = serde_wasm_bindgen::from_value(registries)
             .map_err(|e| to_js_error("Invalid registries format", e))?;
-        
         for (name, registry_data) in registries_map {
-            self.inner.load_registry(name, version.to_string(), &registry_data)
+            inner_validator.load_registry(name, version.clone(), &registry_data)
                 .map_err(|e| to_js_error("Registry loading failed", e))?;
         }
+
+        // 2. Charger les fichiers MCDOC
+        let files_map: HashMap<String, String> = serde_wasm_bindgen::from_value(mcdoc_files)
+            .map_err(|e| to_js_error("Invalid MCDOC files format", e))?;
+        for (filename, content) in files_map {
+            // Convert content to static lifetime by leaking memory (acceptable for WASM usage)
+            let static_content: &'static str = Box::leak(content.into_boxed_str());
+            match crate::parse_mcdoc(static_content) {
+                Ok(ast) => {
+                    inner_validator.load_parsed_mcdoc(filename, ast)
+                        .map_err(|e| to_js_error("Failed to load MCDOC schema", e))?;
+                }
+                Err(parse_errors) => {
+                    let error_msg = format!("MCDOC parse errors in {}: {:?}", filename, parse_errors);
+                    return Err(to_js_error("MCDOC parsing failed", &error_msg[..]));
+                }
+            }
+        }
         
-        Ok(())
+        Ok(DatapackValidator { inner: Box::new(inner_validator) })
     }
 
-    /// Validate JSON against MCDOC schemas (METHOD 3)
+    /// Validation d'un JSON unique
     #[wasm_bindgen]
-    pub fn validate_json(&self, json: JsValue, resource_type: &str) -> Result<JsValue, JsValue> {
+    pub fn validate(&self, json: JsValue, resource_type: &str, version: Option<String>) -> Result<JsValue, JsValue> {
         let json_value: serde_json::Value = serde_wasm_bindgen::from_value(json)
             .map_err(|e| to_js_error("Invalid JSON format", e))?;
         
-        let result = self.inner.validate_json(&json_value, resource_type);
+        let result = self.inner.validate_json(&json_value, resource_type, version.as_deref());
         
-        // Use types.rs structures directly - no conversion needed
         serde_wasm_bindgen::to_value(&result)
             .map_err(|e| to_js_error("Serialization error", e))
     }
 
-    /// Get required registries for a JSON (METHOD 4) - Lightweight dependency extraction  
-    #[wasm_bindgen]
-    pub fn get_required_registries(&self, json: JsValue, resource_type: &str) -> Result<JsValue, JsValue> {
-        let json_value: serde_json::Value = serde_wasm_bindgen::from_value(json)
-            .map_err(|e| to_js_error("Invalid JSON format", e))?;
-        
-        let registries = self.inner.get_required_registries(&json_value, resource_type);
-        
-        serde_wasm_bindgen::to_value(&registries)
-            .map_err(|e| to_js_error("Serialization error", e))
-    }
-
-    /// Analyze complete datapack (METHOD 5) - Simplified interface
+    /// Analyse complète d'un datapack
     #[wasm_bindgen]
     pub fn analyze_datapack(&self, files: JsValue) -> Result<JsValue, JsValue> {
-        let files_map: HashMap<String, Vec<u8>> = serde_wasm_bindgen::from_value(files)
+        let files_map: HashMap<String, serde_json::Value> = serde_wasm_bindgen::from_value(files)
             .map_err(|e| to_js_error("Invalid files format", e))?;
         
-        let mut datapack_result = DatapackResult::new();
+        let mut results = HashMap::new();
         
-        for (file_path, file_data) in files_map {
-            // Convert bytes to JSON
-            let json_value: serde_json::Value = serde_json::from_slice(&file_data)
-                .map_err(|e| to_js_error(&format!("Invalid JSON in {}", file_path), e))?;
+        for (file_path, json_content) in files_map {
+            // Generic resource type inference from file path
+            let resource_type = if file_path.contains("/recipes/") {
+                "recipe"
+            } else if file_path.contains("/loot_tables/") {
+                "loot_table"
+            } else if file_path.contains("/advancements/") {
+                "advancement"
+            } else if file_path.contains("/structures/") {
+                "structure"
+            } else if file_path.contains("/tags/") {
+                "tag"
+            } else {
+                // Extract from path: data/namespace/type/file.json -> type
+                let parts: Vec<&str> = file_path.split('/').collect();
+                if parts.len() >= 4 && parts[0] == "data" {
+                    parts[2] // Get the type part
+                } else {
+                    "unknown"
+                }
+            };
             
-            // Extract resource type from file path (e.g., "data/recipes/bread.json" -> "recipe")
-            let resource_type = self.extract_resource_type(&file_path);
-            
-            let validation_result = self.inner.validate_json(&json_value, &resource_type);
-            datapack_result.add_file_result(file_path, validation_result);
+            let result = self.inner.validate_json(&json_content, resource_type, None);
+            results.insert(file_path, result);
         }
         
-        // Use types.rs DatapackResult directly
-        serde_wasm_bindgen::to_value(&datapack_result)
+        serde_wasm_bindgen::to_value(&results)
             .map_err(|e| to_js_error("Serialization error", e))
-    }
-
-    /// Extract resource type from file path
-    fn extract_resource_type(&self, file_path: &str) -> String {
-        // Simple heuristic: data/recipes/*.json -> recipe, data/loot_tables/*.json -> loot_table, etc.
-        if file_path.contains("/recipes/") {
-            "recipe".to_string()
-        } else if file_path.contains("/loot_tables/") {
-            "loot_table".to_string()
-        } else if file_path.contains("/advancements/") {
-            "advancement".to_string()
-        } else if file_path.contains("/tags/") {
-            "tag".to_string()
-        } else {
-            "unknown".to_string()
-        }
     }
 }
 
