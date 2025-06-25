@@ -1,3 +1,5 @@
+# IT'S NOT WORK FOR THE MOMENT DON'T USE IT !
+
 # Voxel-RSMCDOC
 
 Rust MCDOC parser for ultra-fast Minecraft datapack validation.
